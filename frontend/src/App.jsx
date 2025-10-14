@@ -1,7 +1,7 @@
 // App.jsx
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from "react-router-dom";
-import Register from "./pages/Register";
-import AdminPanel from "./pages/AdminPanel";
+import Register from "/pages/Register";
+import AdminPanel from "/pages/AdminPanel";
 import Login from "./pages/login";
 import ReceptionDashboard from "./pages/Receiption";
 import DrinksDashboard from "./pages/DrinksPanel";
@@ -37,7 +37,7 @@ function NavigationBar() {
         {/* Right Side: Logout Link */}
         <div className="flex gap-4">
           <Link 
-            to="/" 
+            to="/login" 
             className={`${linkClasses} bg-indigo-700 hover:bg-red-600`}
             // In a real app, you would add an onClick handler here to clear the session/token
           >
@@ -63,6 +63,7 @@ export default function App() {
       {/* 2. Content wrapper with pt-16 (padding-top: 4rem) and the new gradient background */}
       <div className={backgroundClasses}>
         <Routes>
+          <Route path="/login" element={<Login />} />
           <Route path="/" element={<AdminPanel />} />
           <Route path="/admin" element={<AdminPanel />} />
           <Route path="/register" element={<Register />} />

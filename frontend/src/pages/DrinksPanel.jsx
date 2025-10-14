@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useMemo } from "react";
 import axios from "axios";
 import { Html5QrcodeScanner } from "html5-qrcode";
-
+ 
 // Define the base styles for the navy theme
 const NAVY_THEME = {
   // Main background color for the page

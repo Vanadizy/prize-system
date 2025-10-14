@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 const styles = {
     // ...same styles as before
@@ -108,12 +109,37 @@ function LoginPage() {
                 // Save token to localStorage/sessionStorage if needed
                 localStorage.setItem('token', data.token);
                 // Optionally redirect or update app state here
-                if (data.user.role === 'reception') {
-                    window.location.href = '/reception';
-                } else if (data.user.role === 'drinks') {
-                    window.location.href = '/drinks';
-                } else if (data.user.role === 'admin') {
-                    window.location.href = '/admin';
+                // ...above code
+
+                function LoginPage() {
+                    const [form, setForm] = useState({ username: '', password: '' });
+                    const [error, setError] = useState('');
+                    const [success, setSuccess] = useState('');
+                    const [loading, setLoading] = useState(false);
+                    const navigate = useNavigate();
+
+                    // ...rest of code
+
+                    const handleSubmit = async e => {
+                        // ...existing code
+                            if (!res.ok) {
+                                setError(data.message);
+                            } else {
+                                setSuccess(data.message);
+                                localStorage.setItem('token', data.token);
+                                // Use react-router-dom navigation
+                                if (data.user.role === 'reception') {
+                                    navigate('/reception');
+                                } else if (data.user.role === 'drinks') {
+                                    navigate('/drinks');
+                                } else if (data.user.role === 'admin') {
+                                    navigate('/admin');
+                                }
+                            }
+                        // ...rest of code
+                    };
+
+                    // ...rest of component
                 }
             }
         } catch (err) {

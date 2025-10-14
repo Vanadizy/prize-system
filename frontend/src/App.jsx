@@ -63,7 +63,7 @@ export default function App() {
       {/* 2. Content wrapper with pt-16 (padding-top: 4rem) and the new gradient background */}
       <div className={backgroundClasses}>
         <Routes>
-          <Route path="/" element={<Login />} />
+          <Route path="/" element={<AdminPanel />} />
           <Route path="/admin" element={<AdminPanel />} />
           <Route path="/register" element={<Register />} />
           <Route path="/reception" element={<ReceptionDashboard />} />

@@ -1,7 +1,7 @@
 // App.jsx
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from "react-router-dom";
-import Register from "/pages/Register";
-import AdminPanel from "/pages/AdminPanel";
+import Register from "./pages/Register";
+import AdminPanel from "./pages/AdminPanel";
 import Login from "./pages/login";
 import ReceptionDashboard from "./pages/Receiption";
 import DrinksDashboard from "./pages/DrinksPanel";

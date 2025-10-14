@@ -25,9 +25,12 @@ app.use(bodyParser.json());
 // --- Database Configuration (UPDATE YOUR DETAILS HERE) ---
 const pool = new Pool({ 
 user: "neondb_owner",// <-- CHANGE THIS IF NOT 'postgres'
-  host: "ep-bitter-rice-aeox32nl-pooler.c-2.us-east-2.aws.neon.tech",
-  database: "guest_system_db",
-    password: "npg_sfZ1DSjPmte6",// <-- CHANGE THIS TO YOUR ACTUAL PASSWORD
+ host: "ep-bitter-rice-aeox32nl-pooler.c-2.us-east-2.aws.neon.tech",
+ database: "guest_system_db",
+password: "npg_sfZ1DSjPmte6",
+ssl: {
+    rejectUnauthorized: false
+  },
   port: 5432,
 });
 

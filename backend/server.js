@@ -23,9 +23,11 @@ app.use(express.json());
 app.use(bodyParser.json());
 
 // --- Database Configuration (UPDATE YOUR DETAILS HERE) ---
-const pool = new Pool({ // <-- CHANGE THIS IF NOT 'postgres'
-  host: "postgresql://neondb_owner:npg_sfZ1DSjPmte6@ep-bitter-rice-aeox32nl-pooler.c-2.us-east-2.aws.neon.tech/guest_system_db?sslmode=require&channel_binding=require",
-  database: "guest_system_db",// <-- CHANGE THIS TO YOUR ACTUAL PASSWORD
+const pool = new Pool({ 
+user: "neondb_owner",// <-- CHANGE THIS IF NOT 'postgres'
+  host: "ep-bitter-rice-aeox32nl-pooler.c-2.us-east-2.aws.neon.tech",
+  database: "guest_system_db",
+    password: "npg_sfZ1DSjPmte6",// <-- CHANGE THIS TO YOUR ACTUAL PASSWORD
   port: 5432,
 });
 

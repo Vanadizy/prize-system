@@ -97,10 +97,10 @@ export default function ReceptionDashboard() {
   const handleScan = async (data) => {
     if (!data) return;
     const token = getToken();
-    if (!token) {
-        alert("Authentication required. Please log in.");
-        return;
-    }
+    // if (!token) {
+    //     alert("Authentication required. Please log in.");
+    //     return;
+    // }
     
     // The QR code contains text with 'Guest ID: [id]'. We need to extract the number.
     const guestIdMatch = data.match(/Guest ID:\s*(\d+)/);

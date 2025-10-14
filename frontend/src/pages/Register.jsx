@@ -34,6 +34,24 @@ const AdminRegister = () => {
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-gray-100">
+      <button
+        type="button"
+        onClick={() => window.location.href = "/admin"}
+        className="absolute left-8 top-8 flex items-center text-blue-600 hover:text-blue-800"
+        style={{ position: "absolute", left: "2rem", top: "2rem" }}
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          fill="none"
+          viewBox="0 0 24 24"
+          strokeWidth={2}
+          stroke="currentColor"
+          className="w-6 h-6 mr-2"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+        </svg>
+        Back
+      </button>
       <form
         onSubmit={handleSubmit}
         className="bg-white p-8 rounded-2xl shadow-lg w-96"

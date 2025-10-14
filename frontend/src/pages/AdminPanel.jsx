@@ -153,7 +153,32 @@ export default function AdminPanel() {
         <p style={{ fontSize: "1.1rem", opacity: 0.85 }}>Manage guests, roles, and search records efficiently.</p>
         <h3>Total Guests: {total}</h3>
       </div>
-
+      <div style={{ marginBottom: "2rem", textAlign: "right" }}>
+        <a
+          href="/register"
+          style={{
+        ...styles.button,
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "0.5rem",
+        fontSize: "1.1rem"
+          }}
+        >
+          <span style={{
+        display: "inline-block",
+        width: "1.5em",
+        height: "1.5em",
+        borderRadius: "50%",
+        background: "#fff",
+        color: "#2563eb",
+        fontWeight: "bold",
+        textAlign: "center",
+        lineHeight: "1.5em",
+        fontSize: "1.2em"
+          }}>+</span>
+          New Admin
+        </a>
+      </div>
       {/* Add/Edit Form */}
       <div style={styles.card}>
         <h2 style={{ fontSize: "1.5rem", fontWeight: 600, marginBottom: "1rem" }}>

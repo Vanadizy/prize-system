@@ -24,7 +24,7 @@ app.use(bodyParser.json());
 
 // --- Database Configuration (UPDATE YOUR DETAILS HERE) ---
 const pool = new Pool({
-  user: "postgres", // <-- CHANGE THIS IF NOT 'postgres'
+  user: "", // <-- CHANGE THIS IF NOT 'postgres'
   host: "pg.neon.tech",
   database: "guest_system_db",
   password: "", // <-- CHANGE THIS TO YOUR ACTUAL PASSWORD

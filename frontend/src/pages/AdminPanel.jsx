@@ -19,7 +19,7 @@ export default function AdminPanel() {
   const formRef = useRef(null);
 
   // NOTE: Ensure your API_URL includes the correct IP and port.
-  const API_URL = "http://192.168.1.147:5000/api/guests";
+  const API_URL = "https://guest-system-backend.onrender.com/api/guests";
   const sexOptions = ["Male", "Female"];
   const stateOptions = ["single", "double"];
   const roleOptions = ["guest", "reception", "drinks"];

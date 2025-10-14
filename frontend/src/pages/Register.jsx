@@ -19,7 +19,7 @@ const AdminRegister = () => {
       return;
     }
 
-    const response = await fetch("http://localhost:5000/api/admin/register", {
+    const response = await fetch("https://guest-system-backend.onrender.com/api/admin/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

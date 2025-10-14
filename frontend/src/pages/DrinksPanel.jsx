@@ -32,8 +32,8 @@ export default function DrinksDashboard() { // Renamed component
   const scannerRef = useRef(null);
 
   // NOTE: Assuming the backend serves the same guest list, but the purpose of scan is different
-  const API_URL = "http://192.168.1.147:5000/api/guests";
-  const DRINKS_SCAN_URL = "http://192.168.1.147:5000/api/drinks/scan"; 
+  const API_URL = "https://guest-system-backend.onrender.com/api/guests";
+  const DRINKS_SCAN_URL = "https://guest-system-backend.onrender.com/api/drinks/scan"; 
   // IMPORTANT: You will need to create this /api/drinks/scan endpoint in your Node.js backend!
 
   const fetchGuests = async () => {

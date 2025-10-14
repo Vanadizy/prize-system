@@ -92,7 +92,7 @@ function LoginPage() {
         }
         setLoading(true);
         try {
-            const res = await fetch('http://192.168.1.147:5000/api/login', {
+            const res = await fetch('https://guest-system-backend.onrender.com/api/login', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

@@ -6,6 +6,7 @@ import axios from "axios";
 
 export default function AdminPanel() {
   const [guests, setGuests] = useState([]);
+  // [FIX] Initial total state can be 0 or null, but the calculation will use the array length.
   const [total, setTotal] = useState(0);
   const [form, setForm] = useState({ fullname: "", phonenumber: "", sex: "", state: "" });
   const [searchPhone, setSearchPhone] = useState("");
@@ -17,6 +18,7 @@ export default function AdminPanel() {
   // NEW: Ref to target the form area for scrolling
   const formRef = useRef(null);
 
+  // NOTE: Ensure your API_URL includes the correct IP and port.
   const API_URL = "http://192.168.1.147:5000/api/guests";
   const sexOptions = ["Male", "Female"];
   const stateOptions = ["single", "double"];
@@ -30,25 +32,43 @@ export default function AdminPanel() {
 
   const fetchGuests = async () => {
     try {
-      const res = await axios.get(API_URL);
-      setGuests(res.data.guests);
-      setTotal(res.data.total);
+      // [FIX] The server now returns { guests: [...] }, not { guests: [...], total: N }
+      // The total must be derived from the length of the guests array.
+      const token = localStorage.getItem('token'); // Retrieve token
+      const res = await axios.get(API_URL, {
+        headers: {
+          Authorization: `Bearer ${token}` // Add Authorization header
+        }
+      });
+      
+      const fetchedGuests = res.data.guests || [];
+      setGuests(fetchedGuests);
+      // [FIX] Calculate total from the fetched array length
+      setTotal(fetchedGuests.length); 
     } catch (err) {
-      showMessage("error", "Failed to fetch guests.");
+      // [FIX] Added better error handling for token/auth issues
+      const errorMsg = err.response?.status === 401 || err.response?.status === 403 
+        ? "Authentication failed. Please log in again." 
+        : "Failed to fetch guests.";
+      showMessage("error", errorMsg);
+      console.error("Fetch guests error:", err);
     }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      const token = localStorage.getItem('token');
+      const headers = { Authorization: `Bearer ${token}` };
+
       if (editingGuest) {
         // UPDATE Guest
-        await axios.put(`${API_URL}/${editingGuest.id}`, form);
+        await axios.put(`${API_URL}/${editingGuest.id}`, form, { headers });
         setEditingGuest(null);
         showMessage("success", "Guest updated successfully!");
       } else {
         // ADD New Guest
-        await axios.post(API_URL, form);
+        await axios.post(API_URL, form, { headers });
         showMessage("success", "Guest added successfully!");
       }
       setForm({ fullname: "", phonenumber: "", sex: "", state: "" });
@@ -60,7 +80,12 @@ export default function AdminPanel() {
 
   const handleEdit = (guest) => {
     setEditingGuest(guest);
-    setForm({ ...guest });
+    setForm({ 
+      fullname: guest.fullname || "", 
+      phonenumber: guest.phonenumber || "", 
+      sex: guest.sex || "", 
+      state: guest.state || "" 
+    });
     showMessage(null, null); // Clear existing messages
     
     // NEW: Scroll automatically to the form section
@@ -75,9 +100,17 @@ export default function AdminPanel() {
 
   const handleSearch = async () => {
     try {
+      const token = localStorage.getItem('token');
+      const headers = { Authorization: `Bearer ${token}` };
+
       if (!searchPhone.trim()) return fetchGuests();
-      const res = await axios.get(`${API_URL}/search?phonenumber=${searchPhone}`);
-      setGuests(res.data);
+          
+      const res = await axios.get(`${API_URL}/search?phonenumber=${searchPhone}`, { headers });
+        
+      // [FIX] Handle total count for search results as well
+      const searchResults = res.data || [];
+      setGuests(searchResults);
+      setTotal(searchResults.length); 
     } catch (err) {
       showMessage("error", err.response?.data?.message || "Error searching guests.");
     }
@@ -85,8 +118,10 @@ export default function AdminPanel() {
 
   const updateRole = async (id, role) => {
     try {
+      const token = localStorage.getItem('token');
+      const headers = { Authorization: `Bearer ${token}` };
       // This API call now triggers the new user management logic in server.js
-      await axios.put(`${API_URL}/${id}/role`, { role });
+      await axios.put(`${API_URL}/${id}/role`, { role }, { headers });
       showMessage("success", `Role updated to ${role} for guest ${id}.`);
       fetchGuests();
     } catch (err) {
@@ -97,7 +132,10 @@ export default function AdminPanel() {
   const handleDelete = async (id) => {
     if (!window.confirm("Are you sure you want to delete this guest?")) return;
     try {
-      await axios.delete(`${API_URL}/${id}`);
+      const token = localStorage.getItem('token');
+      const headers = { Authorization: `Bearer ${token}` };
+
+      await axios.delete(`${API_URL}/${id}`, { headers });
       showMessage("success", "Guest and associated user deleted successfully!");
       fetchGuests();
     } catch (err) {
@@ -108,7 +146,10 @@ export default function AdminPanel() {
   const handleDeleteAll = async () => {
     if (!window.confirm("Are you sure you want to delete ALL guests?")) return;
     try {
-      await axios.delete(`${API_URL}`);
+      const token = localStorage.getItem('token');
+      const headers = { Authorization: `Bearer ${token}` };
+
+      await axios.delete(`${API_URL}`, { headers });
       showMessage("success", "All guests and non-admin users deleted successfully!");
       fetchGuests();
     } catch (err) {
@@ -116,7 +157,10 @@ export default function AdminPanel() {
     }
   };
 
-  useEffect(() => { fetchGuests(); }, []);
+  // [FIX] The original useEffect calls fetchGuests, which now correctly sets total.
+  useEffect(() => { 
+    fetchGuests(); 
+  }, []);
 
   const styles = {
     // ... (Your existing styles remain unchanged)
@@ -216,7 +260,7 @@ export default function AdminPanel() {
       <div style={styles.header}>
         <h1 style={{ fontSize: "2.5rem", fontWeight: 700, marginBottom: "0.5rem" }}>Admin Dashboard</h1>
         <p style={{ fontSize: "1.1rem", opacity: 0.85 }}>Manage guests, roles, and search records efficiently.</p>
-        <h3>Total Guests: {total}</h3>
+        <h3>Total Guests: {total}</h3> {/* This now shows the correct count! */}
       </div>
       <div style={{ marginBottom: "2rem", textAlign: "right" }}>
         <a
@@ -295,7 +339,7 @@ export default function AdminPanel() {
                 <option key={opt} value={opt}>{opt}</option>
               ))}
             </select>
-          </div>
+            </div>
           <div style={{ flex: "1 1 120px" }}>
             <label style={styles.label}>State</label>
             <select
@@ -332,7 +376,7 @@ export default function AdminPanel() {
       <div style={styles.card}>
         <form onSubmit={e => { e.preventDefault(); handleSearch(); }} style={{ display: "flex", alignItems: "center", gap: "1rem", flexWrap: "wrap" }}>
           <input
-            style={styles.input}
+            style={{...styles.input, flexGrow: 1}} // Adjusted style for better layout
             placeholder="Search by phone number"
             value={searchPhone}
             onChange={e => setSearchPhone(e.target.value)}

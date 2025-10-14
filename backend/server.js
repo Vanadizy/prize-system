@@ -165,7 +165,7 @@ Guest ID: ${id}
     const qrPath = path.join(qrDir, `guest_${id}.png`);
     await QRCode.toFile(qrPath, qrData, { width: 300 });
 
-    const qrUrl = `http://192.168.1.147:${PORT}/qrcodes/guest_${id}.png`;
+    const qrUrl = `https://guestsystem.onrender.com/qrcodes/guest_${id}.png`;
 
     // Save QR URL to DB
     await pool.query("UPDATE guests SET qrcode=$1 WHERE id=$2", [qrUrl, id]);
@@ -396,5 +396,5 @@ app.get("/api/profile", async (req, res) => {
 // 🚀 Start the Server
 // ==============================
 app.listen(PORT, () => {
-  console.log(`🚀 Server running at http://192.168.1.147:${PORT}`);
+  console.log(`🚀 Server running at https://guestsystem.onrender.com`);
 });

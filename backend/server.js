@@ -31,7 +31,6 @@ password: "npg_sfZ1DSjPmte6",
 ssl: {
     rejectUnauthorized: false
   },
-  port: 5432,
 });
 
 // --- Security & Auth Configuration ---

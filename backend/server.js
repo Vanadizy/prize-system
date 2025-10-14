@@ -15,7 +15,7 @@ const PORT = 5000;
 
 // --- Middleware Setup ---
 app.use(cors({
-    origin: "https://guestsystem.onrender.com", // <-- UPDATE TO YOUR FRONTEND URL
+    origin: "https://guest-system.vercel.app", // <-- UPDATE TO YOUR FRONTEND URL
     methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true,
 }));

@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
 import Register from "./pages/Register";
 import AdminPanel from "./pages/AdminPanel";
 import Login from "./pages/login";
+import ReceptionDashboard from "./pages/Receiption ";
 
 export default function App() {
   return (
@@ -11,7 +12,7 @@ export default function App() {
         <Link to="/admin">Admin</Link>
       </nav> */}
       <Routes>
-        <Route path="/" element={<Login />} />
+        <Route path="/" element={<ReceptionDashboard />} />
         <Route path="/admin" element={<AdminPanel />} />
       </Routes>
     </Router>

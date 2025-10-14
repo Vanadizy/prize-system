@@ -90,7 +90,7 @@ export default function AdminPanel() {
     
     // NEW: Scroll automatically to the form section
     if (formRef.current) {
-      formRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      formRef.current.scrollIntoView({block: 'start' });
     }
   };
 

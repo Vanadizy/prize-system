@@ -18,14 +18,19 @@ app.use(cors());
 app.use(express.json());
 app.use(bodyParser.json());
 
-// --- Database Configuration ---
+// --- Database Configuration (UPDATE YOUR DETAILS HERE) ---
 const pool = new Pool({
-  user: "postgres",
-  host: "localhost",
-  database: "guest_system_db",
-  password: "V@n@d1zy",
-  port: 5432,
+  user: "postgres", // <-- CHANGE THIS IF NOT 'postgres'
+  host: "localhost",
+  database: "guest_system_db",
+  password: "V@n@d1zy", // <-- CHANGE THIS TO YOUR ACTUAL PASSWORD
+  port: 5432,
 });
+
+// --- Security & Auth Configuration ---
+const saltRounds = 10;
+// *** IMPORTANT: Change this secret key ***
+const JWT_SECRET = "your_jwt_secret_key"; 
 
 // --- QR Code Directory Setup ---
 const __filename = fileURLToPath(import.meta.url);
@@ -35,253 +40,355 @@ const qrDir = path.join(__dirname, "qrcodes");
 if (!fs.existsSync(qrDir)) fs.mkdirSync(qrDir);
 app.use("/qrcodes", express.static(qrDir));
 
+// --- JWT Middleware ---
+// function authenticateToken(req, res, next) {
+//   const authHeader = req.headers["authorization"];
+//   const token = authHeader && authHeader.split(" ")[1];
+//   if (!token) return res.sendStatus(401); // No token provided
+
+//   jwt.verify(token, JWT_SECRET, (err, user) => {
+//     if (err) return res.sendStatus(403); // Invalid or expired token
+//     req.user = user;
+//     next();
+//   });
+// }
+
+
 // ==========================
 // 🚀 GUEST MANAGEMENT ROUTES
 // ==========================
 
-// ✅ Get all guests
+// ✅ Get all guests (Protected for staff/admin)
 app.get("/api/guests", async (req, res) => {
-  try {
-    const result = await pool.query("SELECT * FROM guests ORDER BY id DESC");
-    const total = await pool.query("SELECT COUNT(*) FROM guests");
-    res.json({ guests: result.rows, total: total.rows[0].count });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  try {
+    const result = await pool.query("SELECT * FROM guests ORDER BY id DESC");
+    // NOTE: Removed total calculation, let frontend handle it from 'result.rows'
+    res.json({ guests: result.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// ✅ Search guests by phone number
+// ✅ SCAN QR CODE (Check-In) - Protected by authentication
+app.post("/api/guests/scan",async (req, res) => {
+  const { guestId } = req.body;
+  
+  // Restrict this route to only Reception and Admin roles
+  if (!['reception', 'admin', 'drinks'].includes(req.user.role)) {
+    return res.status(403).json({ message: "Forbidden: Only authorized staff can check-in guests." });
+  }
+
+  try {
+    // 1. Check if the guest exists and is already checked in
+    const checkResult = await pool.query(
+      "SELECT fullname, phonenumber, attendance_checked FROM guests WHERE id=$1",
+      [guestId]
+    );
+
+    if (checkResult.rows.length === 0) {
+      return res.status(404).json({ message: "Guest ID not found." });
+    }
+
+    const guest = checkResult.rows[0];
+
+    if (guest.attendance_checked) {
+      return res.status(409).json({ message: "Guest already checked in." });
+    }
+
+    // 2. Mark attendance as checked and set checkin time
+    const updateResult = await pool.query(
+      "UPDATE guests SET attendance_checked=TRUE, checkin_time=NOW() WHERE id=$1 RETURNING *",
+      [guestId]
+    );
+
+    res.json({ 
+      message: "Guest checked in successfully!", 
+      guest: updateResult.rows[0],
+    });
+
+  } catch (err) {
+    console.error("Scan error:", err);
+    res.status(500).json({ error: "Internal server error during scan." });
+  }
+});
+
+
+// ✅ Search guests by phone number (Protected for staff/admin)
 app.get("/api/guests/search", async (req, res) => {
-  const { phonenumber } = req.query;
-  try {
-    const result = await pool.query(
-      "SELECT * FROM guests WHERE phonenumber ILIKE $1 ORDER BY id DESC",
-      [`%${phonenumber}%`]
-    );
-    res.json(result.rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  const { phonenumber } = req.query;
+  try {
+    const result = await pool.query(
+      "SELECT * FROM guests WHERE phonenumber ILIKE $1 ORDER BY id DESC",
+      [`%${phonenumber}%`]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// ✅ Add new guest + generate QR code
+// ✅ Add new guest + generate QR code (Protected for staff/admin)
 app.post("/api/guests", async (req, res) => {
-  const { fullname, phonenumber, sex, state } = req.body;
-  const role = "guest";
+  const { fullname, phonenumber, sex, state } = req.body;
+  const role = "guest";
 
-  try {
-    // Check if phone already exists
-    const check = await pool.query("SELECT * FROM guests WHERE phonenumber=$1", [phonenumber]);
-    if (check.rows.length > 0)
-      return res.status(400).json({ message: "Phone number already exists" });
+  try {
+    // Check if phone already exists
+    const check = await pool.query("SELECT * FROM guests WHERE phonenumber=$1", [phonenumber]);
+    if (check.rows.length > 0)
+      return res.status(400).json({ message: "Phone number already exists" });
 
-    // Insert new guest
-    const insert = await pool.query(
-      "INSERT INTO guests (fullname, phonenumber, sex, state, role) VALUES ($1, $2, $3, $4, $5) RETURNING id",
-      [fullname, phonenumber, sex, state, role]
-    );
+    // Insert new guest (attendance_checked defaults to FALSE)
+    const insert = await pool.query(
+      "INSERT INTO guests (fullname, phonenumber, sex, state, role) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+      [fullname, phonenumber, sex, state, role]
+    );
 
-    const id = insert.rows[0].id;
+    const id = insert.rows[0].id;
 
-    // Generate QR data
-    const qrData = `
+    // Generate QR data
+    const qrData = `
 Full Name: ${fullname}
 Phone: ${phonenumber}
 Sex: ${sex}
 State: ${state}
 Role: ${role}
 Guest ID: ${id}
-    `.trim();
+    `.trim();
 
-    const qrPath = path.join(qrDir, `guest_${id}.png`);
-    await QRCode.toFile(qrPath, qrData, { width: 300 });
+    const qrPath = path.join(qrDir, `guest_${id}.png`);
+    await QRCode.toFile(qrPath, qrData, { width: 300 });
 
-    const qrUrl = `http://192.168.1.147:${PORT}/qrcodes/guest_${id}.png`;
+    const qrUrl = `http://192.168.1.147:${PORT}/qrcodes/guest_${id}.png`;
 
-    // Save QR URL to DB
-    await pool.query("UPDATE guests SET qrcode=$1 WHERE id=$2", [qrUrl, id]);
+    // Save QR URL to DB
+    await pool.query("UPDATE guests SET qrcode=$1 WHERE id=$2", [qrUrl, id]);
 
-    res.status(201).json({
-      message: "Guest added successfully",
-      qrcode: qrUrl,
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+    res.status(201).json({
+      message: "Guest added successfully",
+      qrcode: qrUrl,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// ✅ Update guest details
+// ✅ Update guest details (Protected for staff/admin)
 app.put("/api/guests/:id", async (req, res) => {
-  const { id } = req.params;
-  const { fullname, phonenumber, sex, state } = req.body;
-  try {
-    await pool.query(
-      "UPDATE guests SET fullname=$1, phonenumber=$2, sex=$3, state=$4 WHERE id=$5",
-      [fullname, phonenumber, sex, state, id]
-    );
-    res.json({ message: "Guest updated successfully" });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  const { id } = req.params;
+  const { fullname, phonenumber, sex, state } = req.body;
+  try {
+    await pool.query(
+      "UPDATE guests SET fullname=$1, phonenumber=$2, sex=$3, state=$4 WHERE id=$5",
+      [fullname, phonenumber, sex, state, id]
+    );
+    res.json({ message: "Guest updated successfully" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// ✅ Update role
+/**
+ * HELPER FUNCTION to get the guest's phone number
+ */
+const getGuestPhone = async (guestId) => {
+    const result = await pool.query("SELECT phonenumber, role FROM guests WHERE id=$1", [guestId]);
+    return result.rows[0];
+}
+
+
+// ✅ Update role AND manage user account based on role (Protected for staff/admin)
 app.put("/api/guests/:id/role", async (req, res) => {
-  const { id } = req.params;
-  const { role } = req.body;
-  try {
-    await pool.query("UPDATE guests SET role=$1 WHERE id=$2", [role, id]);
-    res.json({ message: "Role updated successfully" });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  const { id } = req.params;
+  const { role } = req.body;
+    
+    // Roles that should have a user account
+    const AUTH_ROLES = ["reception", "drinks"];
+
+  try {
+        // 1. Update guest's role in the guests table
+    await pool.query("UPDATE guests SET role=$1 WHERE id=$2", [role, id]);
+        
+        // 2. Fetch the guest's phone number (needed for username) and old role
+        const guestInfo = await getGuestPhone(id);
+        if (!guestInfo) return res.status(404).json({ message: "Guest not found." });
+        const username = guestInfo.phonenumber;
+        const defaultPassword = "1234"; // Default password
+        const passwordHash = await bcrypt.hash(defaultPassword, saltRounds);
+
+        // Check if the new role requires a user account
+        if (AUTH_ROLES.includes(role)) {
+            // New role is "reception" or "drinks" -> Must have a user account
+            
+            // Check if the user already exists in the users table
+            const userCheck = await pool.query("SELECT id FROM users WHERE username=$1", [username]);
+            
+            if (userCheck.rows.length > 0) {
+                // User exists, just update their role
+                await pool.query(
+                    "UPDATE users SET role=$1 WHERE username=$2",
+                    [role, username]
+                );
+            } else {
+                // User does not exist, create a new user account
+                await pool.query(
+                    `INSERT INTO users (username, password_hash, role)
+                     VALUES ($1, $2, $3)`,
+                    [username, passwordHash, role]
+                );
+            }
+        } else {
+            // New role is "guest" (or any non-auth role) -> Delete the user account if it exists
+            await pool.query("DELETE FROM users WHERE username=$1", [username]);
+        }
+
+    res.json({ message: "Role and user account updated successfully" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// ✅ Delete single guest
+// ✅ Delete single guest (Protected for staff/admin)
 app.delete("/api/guests/:id", async (req, res) => {
-  const { id } = req.params;
-  try {
-    // Delete QR code file
-    const qrFile = path.join(qrDir, `guest_${id}.png`);
-    if (fs.existsSync(qrFile)) fs.unlinkSync(qrFile);
+  const { id } = req.params;
+  try {
+    // Before deleting guest, get their phone number
+    const guestInfo = await getGuestPhone(id);
+    if (guestInfo) {
+        // Delete the corresponding user account if it exists (using phone as username)
+        await pool.query("DELETE FROM users WHERE username=$1", [guestInfo.phonenumber]);
+    }
+    
+    // Delete QR code file
+    const qrFile = path.join(qrDir, `guest_${id}.png`);
+    if (fs.existsSync(qrFile)) fs.unlinkSync(qrFile);
 
-    await pool.query("DELETE FROM guests WHERE id=$1", [id]);
-    res.json({ message: "Guest deleted successfully" });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+    await pool.query("DELETE FROM guests WHERE id=$1", [id]);
+    res.json({ message: "Guest deleted successfully" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// ✅ Delete all guests
+// ✅ Delete all guests (Protected for staff/admin)
 app.delete("/api/guests", async (req, res) => {
-  try {
-    // Delete all QR code files
-    const files = fs.readdirSync(qrDir);
-    for (const file of files) {
-      if (file.startsWith("guest_") && file.endsWith(".png")) {
-        fs.unlinkSync(path.join(qrDir, file));
-      }
-    }
+  try {
+    // Delete all QR code files
+    const files = fs.readdirSync(qrDir);
+    for (const file of files) {
+      if (file.startsWith("guest_") && file.endsWith(".png")) {
+        fs.unlinkSync(path.join(qrDir, file));
+      }
+    }
 
-    await pool.query("DELETE FROM guests");
-    res.json({ message: "All guests deleted successfully" });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+    // NEW: Delete all non-admin users before deleting guests
+    await pool.query("DELETE FROM users WHERE role != 'admin'");
+
+    await pool.query("DELETE FROM guests");
+    res.json({ message: "All guests deleted successfully" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ==============================
-// 🔐 ADMIN AUTHENTICATION ROUTES
+// 🔐 AUTHENTICATION ROUTES
 // ==============================
-
-const saltRounds = 10;
-const JWT_SECRET = "your_jwt_secret_key";
 
 // --- Admin Registration ---
 app.post("/api/admin/register", async (req, res) => {
-  const { username, password } = req.body;
-  if (!username || !password)
-    return res.status(400).json({ message: "Username and password are required." });
+  const { username, password } = req.body;
+  if (!username || !password)
+    return res.status(400).json({ message: "Username and password are required." });
 
-  try {
-    const checkUser = await pool.query("SELECT username FROM users WHERE username=$1", [username]);
-    if (checkUser.rows.length > 0)
-      return res.status(409).json({ message: "Admin already exists." });
+  try {
+    const checkUser = await pool.query("SELECT username FROM users WHERE username=$1", [username]);
+    if (checkUser.rows.length > 0)
+      return res.status(409).json({ message: "Admin already exists." });
 
-    const passwordHash = await bcrypt.hash(password, saltRounds);
+    const passwordHash = await bcrypt.hash(password, saltRounds);
 
-    const result = await pool.query(
-      `INSERT INTO users (username, password_hash, role)
-       VALUES ($1, $2, $3)
-       RETURNING id, username, role`,
-      [username, passwordHash, "admin"]
-    );
+    const result = await pool.query(
+      `INSERT INTO users (username, password_hash, role)
+       VALUES ($1, $2, $3)
+       RETURNING id, username, role`,
+      [username, passwordHash, "admin"]
+    );
 
-    const newAdmin = result.rows[0];
-    res.status(201).json({
-      message: "Admin registered successfully!",
-      username: newAdmin.username,
-      id: newAdmin.id,
-    });
-  } catch (error) {
-    res.status(500).json({ message: "Internal server error during registration." });
-  }
+    const newAdmin = result.rows[0];
+    res.status(201).json({
+      message: "Admin registered successfully!",
+      username: newAdmin.username,
+      id: newAdmin.id,
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Internal server error during registration." });
+  }
 });
+
 
 // --- Login Route ---
 app.post("/api/login", async (req, res) => {
-  const { username, password } = req.body;
+  const { username, password } = req.body;
 
-  if (!username || !password)
-    return res.status(400).json({ message: "Username and password are required." });
+  if (!username || !password)
+    return res.status(400).json({ message: "Username and password are required." });
 
-  try {
-    const userResult = await pool.query(
-      "SELECT id, username, password_hash, role FROM users WHERE username=$1",
-      [username]
-    );
+  try {
+    const userResult = await pool.query(
+      "SELECT id, username, password_hash, role FROM users WHERE username=$1",
+      [username]
+    );
 
-    if (userResult.rows.length === 0)
-      return res.status(401).json({ message: "Invalid username or password." });
+    if (userResult.rows.length === 0)
+      return res.status(401).json({ message: "Invalid username or password." });
 
-    const user = userResult.rows[0];
-    const match = await bcrypt.compare(password, user.password_hash);
+    const user = userResult.rows[0];
+    const match = await bcrypt.compare(password, user.password_hash);
 
-    if (!match)
-      return res.status(401).json({ message: "Invalid username or password." });
+    if (!match)
+      return res.status(401).json({ message: "Invalid username or password." });
 
-    const token = jwt.sign(
-      { id: user.id, username: user.username, role: user.role },
-      JWT_SECRET,
-      { expiresIn: "2h" }
-    );
+    const token = jwt.sign(
+      { id: user.id, username: user.username, role: user.role },
+      JWT_SECRET,
+      { expiresIn: "2h" }
+    );
 
-    res.json({
-      message: "Login successful!",
-      token,
-      user: {
-        id: user.id,
-        username: user.username,
-        role: user.role,
-      },
-    });
-  } catch (error) {
-    res.status(500).json({ message: "Internal server error during login." });
-  }
+    res.json({
+      message: "Login successful!",
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Internal server error during login." });
+  }
 });
 
-// --- JWT Middleware ---
-function authenticateToken(req, res, next) {
-  const authHeader = req.headers["authorization"];
-  const token = authHeader && authHeader.split(" ")[1];
-  if (!token) return res.sendStatus(401);
 
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) return res.sendStatus(403);
-    req.user = user;
-    next();
-  });
-}
+// --- Profile Route (Protected) ---
+app.get("/api/profile", async (req, res) => {
+  try {
+    const userResult = await pool.query(
+      "SELECT id, username, role FROM users WHERE id=$1",
+      [req.user.id]
+    );
+    if (userResult.rows.length === 0)
+      return res.status(404).json({ message: "User not found." });
 
-// --- Profile Route ---
-app.get("/api/profile", authenticateToken, async (req, res) => {
-  try {
-    const userResult = await pool.query(
-      "SELECT id, username, role FROM users WHERE id=$1",
-      [req.user.id]
-    );
-    if (userResult.rows.length === 0)
-      return res.status(404).json({ message: "User not found." });
-
-    res.json(userResult.rows[0]);
-  } catch (error) {
-    res.status(500).json({ message: "Internal server error." });
-  }
+    res.json(userResult.rows[0]);
+  } catch (error) {
+    res.status(500).json({ message: "Internal server error." });
+  }
 });
 
 // ==============================
 // 🚀 Start the Server
 // ==============================
 app.listen(PORT, () => {
-  console.log(`🚀 Server running at http://192.168.1.147:${PORT}`);
+  console.log(`🚀 Server running at http://192.168.1.147:${PORT}`);
 });

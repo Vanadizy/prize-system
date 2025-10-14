@@ -108,8 +108,8 @@ function LoginPage() {
                 // Save token to localStorage/sessionStorage if needed
                 localStorage.setItem('token', data.token);
                 // Optionally redirect or update app state here
-                if (data.user.role === 'receiption') {
-                    window.location.href = '/receiption';
+                if (data.user.role === 'reception') {
+                    window.location.href = '/reception';
                 } else if (data.user.role === 'drinks') {
                     window.location.href = '/drinks';
                 } else if (data.user.role === 'admin') {

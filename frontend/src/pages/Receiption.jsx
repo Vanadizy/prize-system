@@ -34,7 +34,7 @@ export default function ReceptionDashboard() {
 
   // Function to get the JWT token for API authorization
   const getToken = () => localStorage.getItem('token');
-  const API_URL = "https://guest-system-backend.onrender.com/api/guests";
+  const API_URL = "https://guestsystem.onrender.com/api/guests";
 
   const fetchGuests = async () => {
     const token = getToken();

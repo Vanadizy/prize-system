@@ -24,7 +24,7 @@ app.use(bodyParser.json());
 
 // --- Database Configuration (UPDATE YOUR DETAILS HERE) ---
 const pool = new Pool({ // <-- CHANGE THIS IF NOT 'postgres'
-  host: "pg.neon.tech",
+  host: "postgresql://neondb_owner:npg_sfZ1DSjPmte6@ep-bitter-rice-aeox32nl-pooler.c-2.us-east-2.aws.neon.tech/guest_system_db?sslmode=require&channel_binding=require",
   database: "guest_system_db",// <-- CHANGE THIS TO YOUR ACTUAL PASSWORD
   port: 5432,
 });

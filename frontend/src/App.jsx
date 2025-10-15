@@ -64,7 +64,7 @@ export default function App() {
       <div className={backgroundClasses}>
         <Routes>
           <Route path="/login" element={<Login />} />
-          <Route path="/" element={<ReceptionDashboard />} />
+          <Route path="/" element={<Register />} />
           <Route path="/admin" element={<AdminPanel />} />
           <Route path="/register" element={<Register />} />
           <Route path="/reception" element={<ReceptionDashboard />} />

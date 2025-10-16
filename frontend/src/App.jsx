@@ -12,9 +12,9 @@ function NavigationBar() {
   const location = useLocation();
 
   // Condition: Don't show the Navbar on the login page ("/")
-  // if (location.pathname === "/") {
-  //   return null;
-  // }
+  if (location.pathname === "/") {
+    return null;
+  }
 
   // Tailwind classes for fixed, navy blue, blur, and styling
   // bg-indigo-900 is used for the navbar to match the navy theme

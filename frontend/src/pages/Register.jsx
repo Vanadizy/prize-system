@@ -38,7 +38,7 @@ const AdminRegister = () => {
         type="button"
         onClick={() => window.location.href = "/admin"}
         className="absolute left-8 top-8 flex items-center text-blue-600 hover:text-blue-800"
-        style={{ position: "absolute", left: "2rem", top: "15rem" }}
+        style={{ position: "absolute", left: "2rem", top: "5rem" }}
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"

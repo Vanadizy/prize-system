@@ -16,7 +16,7 @@ const PORT = 5000;
 // --- Middleware Setup ---
 app.use(cors({
     origin: "https://guest-system.vercel.app", // <-- UPDATE TO YOUR FRONTEND URL
-    methods: ["GET", "POST", "PUT", "DELETE" ,"UPDATE", "INSERT"],
+    methods: ["GET", "POST","DELETE" ,"UPDATE", "INSERT"],
     credentials: true,
 }));
 app.use(express.json());

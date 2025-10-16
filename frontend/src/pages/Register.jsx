@@ -46,7 +46,7 @@ const AdminRegister = () => {
           viewBox="0 0 24 24"
           strokeWidth={2}
           stroke="currentColor"
-          className="w-3 h-6 mr-2 mt-20"
+          className="w-3 h-6 mr-2 mt-10"
         >
           <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
         </svg>

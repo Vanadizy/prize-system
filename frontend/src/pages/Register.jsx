@@ -38,7 +38,7 @@ const AdminRegister = () => {
         type="button"
         onClick={() => window.location.href = "/admin"}
         className="absolute left-8 top-8 flex items-center text-blue-600 hover:text-blue-800"
-        style={{ position: "absolute", left: "2rem", top: "2rem" }}
+        style={{ position: "absolute", left: "2rem", top: "15rem" }}
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -46,7 +46,7 @@ const AdminRegister = () => {
           viewBox="0 0 24 24"
           strokeWidth={2}
           stroke="currentColor"
-          className="w-3 h-6 mr-2 mt-10"
+          className="w-3 h-6 mr-2"
         >
           <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
         </svg>

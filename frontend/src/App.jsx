@@ -66,7 +66,7 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/" element={<AdminPanel />} />
           <Route path="/admin" element={<AdminPanel />} />
-          <Route path="/register" element={<Register />} />
+          <Route path="/register" element={<ReceptionDashboard />} />
           <Route path="/reception" element={<ReceptionDashboard />} />
           <Route path="/drinks" element={<DrinksDashboard />} />
           {/* Added the route for the /profile link in the navbar */}

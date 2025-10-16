@@ -12,7 +12,7 @@ function NavigationBar() {
   const location = useLocation();
 
   // Condition: Don't show the Navbar on the login page ("/")
-  if (location.pathname === "/") {
+  if (location.pathname === "/" || location.pathname === "/login") {
     return null;
   }
 

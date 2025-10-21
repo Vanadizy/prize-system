@@ -92,7 +92,7 @@ export default function DrinksDashboard() {
 
       new Audio("/beep-success.mp3").play();
       alert(
-        `✅ Drink Served!\nName: ${res.data.guest.fullname}\nPhone: ${res.data.guest.phonenumber}`
+        `✅ Drink Served!\nName: ${res.data.guest.fullname}\nPhone: ${res.data.guest.phonenumber}\n\nCard State: ${res.data.guest.state}`
       );
 
       fetchGuests();

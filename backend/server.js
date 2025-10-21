@@ -179,7 +179,7 @@ app.post("/api/drinks/scan", async (req, res) => {
     console.error("Drinks scan error:", error);
     res.status(500).json({
       success: false,
-      message: guestId + "Internal server error while serving drink.",
+      message: guestId + " Internal server error while serving drink.",
       error: error.message,
     });
   }

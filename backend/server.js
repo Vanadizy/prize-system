@@ -138,6 +138,36 @@ app.post("/api/guests/scan", async (req, res) => {
 
 
 
+// SCAN DRINKS QR CODE (Serve Drink) - Protected by authentication
+
+
+// server.js or drinksRoutes.js
+app.post('/api/drinks/scan', async (req, res) => {
+  const { guestId } = req.body;
+  if (!guestId) return res.status(400).json({ message: "Guest ID is required" });
+
+  try {
+    // Example using MySQL or any database
+    const [guest] = await db.query('SELECT * FROM guests WHERE id = ?', [guestId]);
+    if (!guest) return res.status(404).json({ message: "Guest not found" });
+
+    if (guest.drinks_checked) {
+      return res.status(400).json({ message: "Drink already served" });
+    }
+
+    await db.query('UPDATE guests SET drinks_checked = 1 WHERE id = ?', [guestId]);
+    res.json({ guest: { ...guest, drinks_checked: 1 } });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+
+
+
+
 
 
 // ✅ Search guests by phone number (Protected for staff/admin)

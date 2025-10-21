@@ -29,7 +29,7 @@ const AdminRegister = () => {
     });
 
     const data = await response.json();
-    alert(`Admin Registered!\nUsername: ${data.username}`);
+    alert( `${data.message}` );
   };
 
   return (

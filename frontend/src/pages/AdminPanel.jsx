@@ -118,9 +118,6 @@ export default function AdminPanel() {
 
   const updateRole = async (id, role) => {
     try {
-//       const token = localStorage.getItem('token');
-//       const headers = { Authorization: `Bearer ${token}` };
-      // This API call now triggers the new user management logic in server.js
       await axios.put(`${API_URL}/${id}/role`, { role }, { headers });
       showMessage("success", `Role updated to ${role} for guest ${id}.`);
       fetchGuests();

@@ -46,18 +46,6 @@ const qrDir = path.join(__dirname, "qrcodes");
 if (!fs.existsSync(qrDir)) fs.mkdirSync(qrDir);
 app.use("/qrcodes", express.static(qrDir));
 
-// --- JWT Middleware ---
-// function authenticateToken(req, res, next) {
-//   const authHeader = req.headers["authorization"];
-//   const token = authHeader && authHeader.split(" ")[1];
-//   if (!token) return res.sendStatus(401); // No token provided
-
-//   jwt.verify(token, JWT_SECRET, (err, user) => {
-//     if (err) return res.sendStatus(403); // Invalid or expired token
-//     req.user = user;
-//     next();
-//   });
-// }
 
 
 // ==========================
@@ -277,7 +265,7 @@ const getGuestPhone = async (guestId) => {
 
 
 // ✅ Update role AND manage user account based on role (Protected for staff/admin)
-app.put("/api/guests/:id/role", async (req, res) => {
+app.put("/api/guests/id/role", async (req, res) => {
   const { id } = req.params;
   const { role } = req.body;
     

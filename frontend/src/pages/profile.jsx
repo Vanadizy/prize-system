@@ -6,10 +6,9 @@ import React, { useState, useEffect } from 'react';
 
 // Mock user data and mock password change function for demonstration
 const MOCK_USER = {
-  username: 'reception_clerk',
-  email: 'clerk@system.com',
-  role: 'reception',
-  lastLogin: '2025-10-14 10:30 AM',
+  username: 'loading...',
+  email: 'loading...',
+  role: 'loading...',
 };
 
 // --- MOCK AUTH HOOK ---

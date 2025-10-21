@@ -265,7 +265,7 @@ const getGuestPhone = async (guestId) => {
 
 
 // ✅ Update role AND manage user account based on role (Protected for staff/admin)
-app.put("/api/guests/id/role", async (req, res) => {
+app.put("/api/guests/:id/role", async (req, res) => {
   const { id } = req.params;
   const { role } = req.body;
     

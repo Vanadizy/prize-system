@@ -122,7 +122,7 @@ export default function AdminPanel() {
       showMessage("success", `Role updated to ${role} for guest ${id}.`);
       fetchGuests();
     } catch (err) {
-      showMessage("error", "Failed to update role and user account.");
+      showMessage("error", "Failed to update role and user account" + `${id} ` + ` ${role}`.);
     }
   };
 

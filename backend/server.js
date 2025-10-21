@@ -75,47 +75,60 @@ app.get("/api/guests", async (req, res) => {
   }
 });
 
+
+
 // ✅ SCAN QR CODE (Check-In) - Protected by authentication
-app.post("/api/guests/scan",async (req, res) => {
-  const { guestId } = req.body;
-  
-  // Restrict this route to only Reception and Admin roles
-  if (!['reception', 'admin', 'drinks'].includes(req.user.role)) {
-    return res.status(403).json({ message: "Forbidden: Only authorized staff can check-in guests." });
-  }
+app.post("/api/guests/scan", async (req, res) => {
+  const { guestId } = req.body;
 
-  try {
-    // 1. Check if the guest exists and is already checked in
-    const checkResult = await pool.query(
-      "SELECT fullname, phonenumber, attendance_checked FROM guests WHERE id=$1",
-      [guestId]
-    );
+  // 1️⃣ Validate incoming data
+  if (!guestId) {
+    return res.status(400).json({ message: "Guest ID is missing in request." });
+  }
 
-    if (checkResult.rows.length === 0) {
-      return res.status(404).json({ message: "Guest ID not found." });
-    }
+  try {
+    // 2️⃣ Check if the guest exists
+    const guestResult = await pool.query(
+      "SELECT id, fullname, phonenumber, attendance_checked FROM guests WHERE id = $1",
+      [guestId]
+    );
 
-    const guest = checkResult.rows[0];
+    if (guestResult.rows.length === 0) {
+      return res.status(404).json({ message: "Guest not found in database." });
+    }
 
-    if (guest.attendance_checked) {
-      return res.status(409).json({ message: "Guest already checked in." });
-    }
+    const guest = guestResult.rows[0];
 
-    // 2. Mark attendance as checked and set checkin time
-    const updateResult = await pool.query(
-      "UPDATE guests SET attendance_checked=TRUE, checkin_time=NOW() WHERE id=$1 RETURNING *",
-      [guestId]
-    );
+    // 3️⃣ Prevent double check-in
+    if (guest.attendance_checked) {
+      return res.status(409).json({
+        message: `Guest ${guest.fullname} already checked in.`,
+        guest,
+      });
+    }
 
-    res.json({ 
-      message: "Guest checked in successfully!", 
-      guest: updateResult.rows[0],
-    });
+    // 4️⃣ Mark the guest as checked in
+    const update = await pool.query(
+      "UPDATE guests SET attendance_checked = TRUE, checkin_time = NOW() WHERE id = $1 RETURNING *",
+      [guestId]
+    );
 
-  } catch (err) {
-    console.error("Scan error:", err);
-    res.status(500).json({ error: "Internal server error during scan." });
-  }
+    const updatedGuest = update.rows[0];
+
+    // 5️⃣ Return success response
+    res.json({
+      success: true,
+      message: `Guest ${updatedGuest.fullname} checked in successfully!`,
+      guest: updatedGuest,
+    });
+  } catch (error) {
+    console.error("Scan error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error while scanning guest.",
+      error: error.message,
+    });
+  }
 });
 
 

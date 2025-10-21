@@ -153,7 +153,7 @@ app.post("/api/drinks/scan", async (req, res) => {
     );
 
     if (guestResult.rows.length === 0) {
-      return res.status(404).json({ message: "Guest not found in database." });
+      return res.status(404).json({ message: guestId + " not found in database." });
     }
 
     const guest = guestResult.rows[0];

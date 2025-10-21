@@ -118,9 +118,10 @@ export default function ReceptionDashboard() {
     try {
       // Send the guest ID to the protected scan endpoint
       const res = await axios.post(`${API_URL}/scan`, { guestId }, {
-        // headers: {
-        //     Authorization: `Bearer ${token}` // Pass token for check-in
-        // }
+        headers: {
+        "Content-Type": "application/json",
+            // Authorization: `Bearer ${token}` // Pass token for check-in
+        }
       });
 
       // ✅ SUCCESS ALERT

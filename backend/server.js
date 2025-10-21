@@ -82,45 +82,58 @@ app.get("/api/guests", async (req, res) => {
 // ✅ SCAN QR CODE (Check-In) - Protected by authentication
 // Ensure JSON parsing middleware is enabled
 
-app.post('/api/drinks/scan', async (req, res) => {
-  const { guestId } = req.body;
-  if (!guestId) return res.status(400).json({ message: "Guest ID is required" });
+// Helper: parse guestId safely
+const parseGuestId = (data) => {
+  if (!data) return null;
+  const idStr = data.toString().trim().match(/\d+/); // extract first number
+  if (!idStr) return null;
+  return parseInt(idStr[0], 10);
+};
+
+// Reception scan
+app.post("/api/guests/scan", async (req, res) => {
+  let guestId = parseGuestId(req.body.guestId);
+  if (!guestId) return res.status(400).json({ message: "Invalid or missing Guest ID." });
 
   try {
-    // 1️⃣ Fetch guest
     const guestResult = await pool.query(
-      "SELECT id, fullname, phonenumber, drinks_checked FROM guests WHERE id=$1",
+      "SELECT id, fullname, phonenumber, attendance_checked FROM guests WHERE id = $1",
       [guestId]
     );
 
     if (guestResult.rows.length === 0) {
-      return res.status(404).json({ message: "Guest not found" });
+      return res.status(404).json({ message: "Guest not found in database." });
     }
 
     const guest = guestResult.rows[0];
 
-    // 2️⃣ Check if already served
-    if (guest.drinks_checked) {
-      return res.status(400).json({ message: "Drink already served", guest });
+    if (guest.attendance_checked) {
+      return res.status(409).json({
+        message: `Guest ${guest.fullname} already checked in.`,
+        guest,
+      });
     }
 
-    // 3️⃣ Update drinks_checked
-    const updateResult = await pool.query(
-      "UPDATE guests SET drinks_checked = TRUE WHERE id=$1 RETURNING *",
+    const update = await pool.query(
+      "UPDATE guests SET attendance_checked = TRUE, checkin_time = NOW() WHERE id = $1 RETURNING *",
       [guestId]
     );
 
     res.json({
       success: true,
-      message: `Drink served to ${updateResult.rows[0].fullname}`,
-      guest: updateResult.rows[0],
+      message: `Guest ${update.rows[0].fullname} checked in successfully!`,
+      guest: update.rows[0],
     });
-
-  } catch (err) {
-    console.error("Drinks scan error:", err);
-    res.status(500).json({ message: "Server error", error: err.message });
+  } catch (error) {
+    console.error("Reception scan error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error while scanning guest.",
+      error: error.message,
+    });
   }
 });
+
 
 
 
@@ -128,28 +141,49 @@ app.post('/api/drinks/scan', async (req, res) => {
 
 
 // server.js or drinksRoutes.js
-app.post('/api/drinks/scan', async (req, res) => {
-  const { guestId } = req.body;
-  if (!guestId) return res.status(400).json({ message: "Guest ID is required" });
+// Drinks scan
+app.post("/api/drinks/scan", async (req, res) => {
+  let guestId = parseGuestId(req.body.guestId);
+  if (!guestId) return res.status(400).json({ message: "Invalid or missing Guest ID." });
 
   try {
-    // Example using MySQL or any database
-    const [guest] = await db.query('SELECT * FROM guests WHERE id = ?', [guestId]);
-    if (!guest) return res.status(404).json({ message: "Guest not found" });
+    const guestResult = await pool.query(
+      "SELECT id, fullname, phonenumber, drinks_checked FROM guests WHERE id = $1",
+      [guestId]
+    );
 
-    if (guest.drinks_checked) {
-      return res.status(400).json({ message: "Drink already served" });
+    if (guestResult.rows.length === 0) {
+      return res.status(404).json({ message: "Guest not found in database." });
     }
 
-    await db.query('UPDATE guests SET drinks_checked = 1 WHERE id = ?', [guestId]);
-    res.json({ guest: { ...guest, drinks_checked: 1 } });
+    const guest = guestResult.rows[0];
 
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Server error" });
+    if (guest.drinks_checked) {
+      return res.status(409).json({
+        message: `Drink already served to ${guest.fullname}.`,
+        guest,
+      });
+    }
+
+    const update = await pool.query(
+      "UPDATE guests SET drinks_checked = TRUE, drinks_time = NOW() WHERE id = $1 RETURNING *",
+      [guestId]
+    );
+
+    res.json({
+      success: true,
+      message: `Drink served to ${update.rows[0].fullname}!`,
+      guest: update.rows[0],
+    });
+  } catch (error) {
+    console.error("Drinks scan error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error while serving drink.",
+      error: error.message,
+    });
   }
 });
-
 
 
 

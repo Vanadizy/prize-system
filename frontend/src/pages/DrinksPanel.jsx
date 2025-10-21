@@ -48,7 +48,7 @@ export default function DrinksDashboard() { // Renamed component
 
       // Calculate statistics based on ATTENDED guests
       setTotalAttended(attendedGuests.length);
-      const drinksReceivedCount = attendedGuests.filter(g => g.drinks_checked).length;
+      const drinksReceivedCount = attendedGuests.filter(g => g.drinks_received).length;
       setGotDrinks(drinksReceivedCount);
       setNoDrinks(attendedGuests.length - drinksReceivedCount);
 

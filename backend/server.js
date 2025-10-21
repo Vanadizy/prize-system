@@ -224,12 +224,14 @@ app.post("/api/guests", async (req, res) => {
     const id = insert.rows[0].id;
 
     // Generate QR data
-    const qrData = `
-Full Name: ${fullname}
-Phone: ${phonenumber}
-Sex: ${sex}
-State: ${state}
-Role: ${role}
+    const qrData =
+//  `
+// Full Name: ${fullname}
+// Phone: ${phonenumber}
+// Sex: ${sex}
+// State: ${state}
+// Role: ${role}
+`
 Guest ID: ${id}
     `.trim();
 

@@ -100,7 +100,31 @@ export default function DrinksDashboard() {
       new Audio("/beep-error.mp3").play();
       alert(err.response?.data?.message || "❌ Scan failed / Drink already served");
     }
+
+        // Restart scanner after 1s
+    setTimeout(() => {
+      if (!scannerRef.current) {
+        const scanner = new Html5QrcodeScanner("qr-reader", { fps: 10, qrbox: 250 }, false);
+        scanner.render(
+          async (decodedText) => {
+            if (scannerRef.current) {
+              scannerRef.current.clear();
+              scannerRef.current = null;
+            }
+            await handleScan(decodedText);
+          },
+          () => {}
+        );
+        scannerRef.current = scanner;
+      }
+    }, 1000);
+
+
+
+
   };
+
+  
 
   // Filter guests based on stats and search
   const filteredGuests = useMemo(() => {

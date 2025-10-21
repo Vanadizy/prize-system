@@ -77,13 +77,18 @@ app.get("/api/guests", async (req, res) => {
 
 
 
+
+
 // ✅ SCAN QR CODE (Check-In) - Protected by authentication
+// Ensure JSON parsing middleware is enabled
+app.use(express.json());
+
 app.post("/api/guests/scan", async (req, res) => {
   const { guestId } = req.body;
 
   // 1️⃣ Validate incoming data
-  if (!guestId) {
-    return res.status(400).json({ message: "Guest ID is missing in request." });
+  if (!guestId || isNaN(guestId)) {
+    return res.status(400).json({ message: "Invalid or missing Guest ID." });
   }
 
   try {
@@ -121,6 +126,7 @@ app.post("/api/guests/scan", async (req, res) => {
       message: `Guest ${updatedGuest.fullname} checked in successfully!`,
       guest: updatedGuest,
     });
+
   } catch (error) {
     console.error("Scan error:", error);
     res.status(500).json({
@@ -130,6 +136,9 @@ app.post("/api/guests/scan", async (req, res) => {
     });
   }
 });
+
+
+
 
 
 // ✅ Search guests by phone number (Protected for staff/admin)

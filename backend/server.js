@@ -82,57 +82,43 @@ app.get("/api/guests", async (req, res) => {
 // ✅ SCAN QR CODE (Check-In) - Protected by authentication
 // Ensure JSON parsing middleware is enabled
 
-app.post("/api/guests/scan", async (req, res) => {
+app.post('/api/drinks/scan', async (req, res) => {
   const { guestId } = req.body;
-
-  // 1️⃣ Validate incoming data
-  if (!guestId || isNaN(guestId)) {
-    return res.status(400).json({ message: "Invalid or missing Guest ID." });
-  }
+  if (!guestId) return res.status(400).json({ message: "Guest ID is required" });
 
   try {
-    // 2️⃣ Check if the guest exists
+    // 1️⃣ Fetch guest
     const guestResult = await pool.query(
-      "SELECT id, fullname, phonenumber, attendance_checked FROM guests WHERE id = $1",
+      "SELECT id, fullname, phonenumber, drinks_checked FROM guests WHERE id=$1",
       [guestId]
     );
 
     if (guestResult.rows.length === 0) {
-      return res.status(404).json({ message: "Guest not found in database." });
+      return res.status(404).json({ message: "Guest not found" });
     }
 
     const guest = guestResult.rows[0];
 
-    // 3️⃣ Prevent double check-in
-    if (guest.attendance_checked) {
-      return res.status(409).json({
-        message: `Guest ${guest.fullname} already checked in.`,
-        guest,
-      });
+    // 2️⃣ Check if already served
+    if (guest.drinks_checked) {
+      return res.status(400).json({ message: "Drink already served", guest });
     }
 
-    // 4️⃣ Mark the guest as checked in
-    const update = await pool.query(
-      "UPDATE guests SET attendance_checked = TRUE, checkin_time = NOW() WHERE id = $1 RETURNING *",
+    // 3️⃣ Update drinks_checked
+    const updateResult = await pool.query(
+      "UPDATE guests SET drinks_checked = TRUE WHERE id=$1 RETURNING *",
       [guestId]
     );
 
-    const updatedGuest = update.rows[0];
-
-    // 5️⃣ Return success response
     res.json({
       success: true,
-      message: `Guest ${updatedGuest.fullname} checked in successfully!`,
-      guest: updatedGuest,
+      message: `Drink served to ${updateResult.rows[0].fullname}`,
+      guest: updateResult.rows[0],
     });
 
-  } catch (error) {
-    console.error("Scan error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal server error while scanning guest.",
-      error: error.message,
-    });
+  } catch (err) {
+    console.error("Drinks scan error:", err);
+    res.status(500).json({ message: "Server error", error: err.message });
   }
 });
 

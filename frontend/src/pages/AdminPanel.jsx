@@ -63,12 +63,7 @@ export default function AdminPanel() {
 
       if (editingGuest) {
         // UPDATE Guest
-        await axios.put(`${API_URL}/${editingGuest.id}`, form, { 
-
-        headers: {
-          "Content-Type": "application/json",
-        }
-});
+        await axios.put(`${API_URL}/${editingGuest.id}`, form, { headers });
         setEditingGuest(null);
         showMessage("success", "Guest updated successfully!");
       } else {
@@ -123,7 +118,13 @@ export default function AdminPanel() {
 
   const updateRole = async (id, role) => {
     try {
-      await axios.put(`${API_URL}/${id}/role`, { role }, { headers });
+      await axios.put(`${API_URL}/${id}/role`, { role }, { 
+
+        headers: {
+          "Content-Type": "application/json",
+        }
+
+ });
       showMessage("success", `Role updated to ${role} for guest ${id}.`);
       fetchGuests();
     } catch (err) {

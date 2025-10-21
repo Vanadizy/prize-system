@@ -401,7 +401,7 @@ app.post("/api/admin/register", async (req, res) => {
       id: newAdmin.id,
     });
   } catch (error) {
-    res.status(500).json({ message: "Internal server error during registration." });
+    res.status(500).json({ message: "Internal server error during registration." + username  + passwordHash });
   }
 });
 

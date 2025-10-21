@@ -236,7 +236,7 @@ export default function DrinksDashboard() { // Renamed component
                                 <p className="text-xs text-gray-500">{guest.phonenumber}</p>
                             </div>
                             <div className="col-span-1 text-center">
-                                {guest.drinks_checked ? (
+                                {guest.drinks_received ? (
                                     <span className="inline-block px-3 py-1 text-xs font-semibold leading-none rounded-full bg-green-100 text-green-800">
                                         Served
                                     </span>

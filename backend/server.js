@@ -81,7 +81,6 @@ app.get("/api/guests", async (req, res) => {
 
 // ✅ SCAN QR CODE (Check-In) - Protected by authentication
 // Ensure JSON parsing middleware is enabled
-app.use(express.json());
 
 app.post("/api/guests/scan", async (req, res) => {
   const { guestId } = req.body;

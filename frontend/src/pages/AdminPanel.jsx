@@ -63,7 +63,12 @@ export default function AdminPanel() {
 
       if (editingGuest) {
         // UPDATE Guest
-        await axios.put(`${API_URL}/${editingGuest.id}`, form, { headers });
+        await axios.put(`${API_URL}/${editingGuest.id}`, form, { 
+
+        headers: {
+          "Content-Type": "application/json",
+        }
+});
         setEditingGuest(null);
         showMessage("success", "Guest updated successfully!");
       } else {
@@ -122,7 +127,7 @@ export default function AdminPanel() {
       showMessage("success", `Role updated to ${role} for guest ${id}.`);
       fetchGuests();
     } catch (err) {
-      showMessage("error", "Failed to update role and user account" + `${id}` + ` ${role}`);
+      showMessage("error", "Failed to update role and user account");
     }
   };
 

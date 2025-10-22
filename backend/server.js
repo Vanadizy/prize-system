@@ -299,8 +299,7 @@ app.put("/api/guests/:id/role", async (req, res) => {
             } else {
                 // User does not exist, create a new user account
                 await pool.query(
-                    `INSERT INTO users (username, password_hash, role)
-                     VALUES ($1, $2, $3)`,
+                    "INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3)",
                     [username, passwordHash, role]
                 );
             }
@@ -314,6 +313,8 @@ app.put("/api/guests/:id/role", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+
 
 // ✅ Delete single guest (Protected for staff/admin)
 app.delete("/api/guests/:id", async (req, res) => {

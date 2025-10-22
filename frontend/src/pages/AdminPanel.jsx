@@ -119,7 +119,6 @@ export default function AdminPanel() {
   const updateRole = async (id, role) => {
     try {
       await axios.put(`${API_URL}/${id}/role`, { role }, { 
-
         headers: {
           "Content-Type": "application/json",
         }

@@ -30,6 +30,7 @@ const AdminRegister = () => {
 
     const data = await response.json();
     alert( `${data.message}` );
+    window.location.href = "/register";
   };
 
   return (
@@ -59,7 +60,7 @@ const AdminRegister = () => {
         <h2 className="text-2xl font-bold text-center mb-6 text-blue-600">
           Admin Registration
         </h2>
-
+        
         <input
           type="tel"
           name="username"

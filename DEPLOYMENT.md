@@ -12,7 +12,7 @@ In PowerShell, run:
 Set-Location (Join-Path $env:USERPROFILE "Desktop")
 $target = Join-Path (Get-Location) "GuestSystem-live"
 if (Test-Path $target) { throw "GuestSystem-live already exists. Choose another clean folder name." }
-robocopy .\GuestSystem $target /E /XD .git node_modules qrcodes dist /XF .env .env.local
+robocopy .\GuestSystem $target /E /XD .git node_modules qrcodes dist database-backup /XF .env .env.local
 if ($LASTEXITCODE -ge 8) { throw "Copy failed. Robocopy exit code: $LASTEXITCODE" }
 Set-Location $target
 git init -b main
@@ -46,6 +46,30 @@ pg_dump -h localhost -p 5432 -U postgres -W -d contest_system -Fc -f "$env:USERP
 ```
 
 The backup contains the contestant tickets, their used status and prize details, scan-window settings, and administrator password hash. Keep the dump private and out of GitHub.
+
+### Import with pgAdmin
+
+Use the generated SQL file at `database-backup/contest_system_export.sql`. It contains the local database's schema and data as SQL `CREATE` and `INSERT` statements, including the administrator hash, so it can be opened in pgAdmin's Query Tool. Keep it private.
+
+1. In Render, create a new empty PostgreSQL database. A Render database may already have its default database created; use that empty database as the target.
+2. In pgAdmin, register the Render database using the **External Database URL** values from Render: hostname, port, database name, and username. Set the connection's SSL mode to **Require** and enter the database password.
+3. Select the empty target database and open **Tools → Query Tool**.
+4. In Query Tool, open `database-backup/contest_system_export.sql` and execute the script (F5). It restores data into the `public` schema. Leave the target empty before running it, so the script doesn't collide with existing tables or rows.
+5. Verify the import with:
+
+   ```sql
+   SELECT COUNT(*) AS total_tickets,
+          COUNT(*) FILTER (WHERE used_at IS NOT NULL) AS used_tickets
+   FROM public.contestants;
+
+   SELECT id, starts_at, expires_at
+   FROM public.ticket_scan_window;
+
+   SELECT username, role
+   FROM public.users;
+   ```
+
+Use the Render **Internal Database URL** for the backend's `DATABASE_URL` after import. The external URL is for pgAdmin running on your computer. Render's [database restore documentation](https://render.com/docs/postgresql-backups) also recommends restoring exports into an empty database.
 
 ## 3. Create the Render database and import the backup
 
@@ -85,23 +109,23 @@ Add these environment variables in Render's service settings:
 | `DATABASE_URL` | Render PostgreSQL **Internal Database URL** |
 | `DB_SSL` | `true` |
 | `JWT_SECRET` | A new, long random secret used only by the live backend |
-| `FRONTEND_URL` | Exact HTTPS URL of the Render static site, after you create it |
+| `FRONTEND_URL` | Exact HTTPS URL of the Render frontend Node service, after you create it |
 | `ADMIN_PASSWORD` | Strong initial password; used only if the database has no administrator yet |
 
 If you imported the local database, it includes the local admin account hash, so log in with the existing admin credentials. `ADMIN_PASSWORD` will not replace an administrator in an imported database. The backend now creates the default `admin` user only if no admin exists; restarting the service will not reset a changed password.
 
 Render's [Express deployment guide](https://render.com/docs/deploy-node-express-app) and [environment-variable guide](https://render.com/docs/configure-environment-variables) describe these settings. Keep secrets in Render's environment settings, not in the repository.
 
-## 5. Deploy the React frontend
+## 5. Deploy the React frontend as a Node web service
 
-Create a **Static Site** in Render using the same repository:
+Create a second **Web Service** in Render using the same repository. Set its runtime to Node and configure:
 
 - Root Directory: `frontend`
 - Build Command: `npm install && npm run build`
-- Publish Directory: `dist`
+- Start Command: `npm start`
 - Environment Variable `VITE_API_URL`: the backend's HTTPS base URL, for example `https://your-api.onrender.com` (do not add `/api`)
 
-After Render assigns the static-site URL, set the backend's `FRONTEND_URL` to that exact URL and redeploy the backend. The live site uses HTTPS, which browsers require for camera access outside localhost. See Render's [static site deployment fields](https://render.com/docs/your-first-deploy).
+The `frontend/server.js` Node process serves the built `dist` files and sends React routes such as `/admin` back to `index.html`. It listens on Render's `PORT` and `0.0.0.0`. Set `VITE_API_URL` before building, because Vite embeds that value into the frontend bundle. After Render assigns the frontend service URL, set the backend's `FRONTEND_URL` to that exact HTTPS URL and redeploy the backend. HTTPS is required for camera access outside localhost. Render's [web service deployment guide](https://render.com/docs/web-services) describes the root directory, build command, start command, and environment settings.
 
 The backend regenerates missing QR PNG files from ticket IDs at startup. The database is the durable source of ticket data; do not rely on the web service's local QR image folder as persistent storage.
 

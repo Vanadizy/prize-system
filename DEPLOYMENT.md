@@ -118,17 +118,23 @@ Render's [Express deployment guide](https://render.com/docs/deploy-node-express-
 
 ## 5. Deploy on Rodline Node app hosting
 
-Create two Node applications from the same GitHub repository: one for the API and one for the React frontend. The API application should use `backend` as its application root, install packages with `npm install`, and start with `npm start` (equivalent to `node server.js`). Configure the backend environment variables listed above, including `DATABASE_URL`, `DB_SSL`, `JWT_SECRET`, and `FRONTEND_URL`.
+Create two Node applications from the same GitHub repository: one for the API and one for the React frontend. In CloudLinux Node.js Selector, configure each app with its own application root and virtual environment, then use the Selector's **Run NPM Install** action after uploading `package.json` and `package-lock.json`. Do not upload a `node_modules` directory. The API application's root is `backend`; its startup file is `server.js` (or use `npm start`). Configure `DATABASE_URL`, `DB_SSL`, `JWT_SECRET`, `FRONTEND_URL`, and the other backend variables in its app settings.
 
 Configure the frontend Node application as follows:
 
 - Root Directory: `frontend`
-- Install Command: `npm ci --include=dev`
+- Install dependencies in the frontend app's activated Selector environment with `npm install --include=dev`
 - Build Command: `npm run build`
 - Start Command: `npm start`
 - Environment Variable `VITE_API_URL`: the backend's HTTPS base URL (do not add `/api`)
 
-If Rodline provides one combined build command instead of separate install and build fields, use `npm ci --include=dev && npm run build`. `frontend/server.js` serves the built `dist` files and sends React routes such as `/admin` back to `index.html`. It listens on the hosting platform's `PORT` and `0.0.0.0`. Set `VITE_API_URL` before building, because Vite embeds that value into the frontend bundle. Set the backend's `FRONTEND_URL` to the frontend's exact HTTPS URL. HTTPS is required for camera access outside localhost.
+If Rodline provides a combined build command, activate the frontend app's Selector environment first, then run `npm install --include=dev && npm run build`. Vite is listed under `devDependencies`, so an install that omits development packages leaves both `vite build` and `vite` unavailable. Do not run `npm start` until the build succeeds. `frontend/server.js` serves the built `dist` files and sends React routes such as `/admin` back to `index.html`. It listens on the hosting platform's `PORT` and `0.0.0.0`. Set `VITE_API_URL` before building, because Vite embeds that value into the frontend bundle. Set the backend's `FRONTEND_URL` to the frontend's exact HTTPS URL. HTTPS is required for camera access outside localhost.
+
+### Populate the hosted database
+
+The backend creates the required tables and the initial `admin` account when it starts against an empty PostgreSQL database. Set the live database connection in the backend app's environment settings, restart the backend, then sign in to the admin page and create ticket IDs with the range tool and assign each ticket's result/prize details. The contestant scanner then reads those rows. No contestant login is needed.
+
+To copy the existing local records instead, connect to the Rodline PostgreSQL database in pgAdmin (using Rodline's connection details and SSL requirement), select that database, open **Tools → Query Tool**, open `database-backup/contest_system_export.sql`, and execute it only on an empty database. This export includes 20 existing tickets, an administrator row, and scan-window dates that expired on 2026-10-18; review or change the scan window in the admin interface after importing. Do not execute it on a database that already has tables or live records. Verify the import with `SELECT COUNT(*) FROM public.contestants;`.
 
 The backend regenerates missing QR PNG files from ticket IDs at startup. The database is the durable source of ticket data; do not rely on the web service's local QR image folder as persistent storage.
 

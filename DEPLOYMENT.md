@@ -116,16 +116,19 @@ If you imported the local database, it includes the local admin account hash, so
 
 Render's [Express deployment guide](https://render.com/docs/deploy-node-express-app) and [environment-variable guide](https://render.com/docs/configure-environment-variables) describe these settings. Keep secrets in Render's environment settings, not in the repository.
 
-## 5. Deploy the React frontend as a Node web service
+## 5. Deploy on Rodline Node app hosting
 
-Create a second **Web Service** in Render using the same repository. Set its runtime to Node and configure:
+Create two Node applications from the same GitHub repository: one for the API and one for the React frontend. The API application should use `backend` as its application root, install packages with `npm install`, and start with `npm start` (equivalent to `node server.js`). Configure the backend environment variables listed above, including `DATABASE_URL`, `DB_SSL`, `JWT_SECRET`, and `FRONTEND_URL`.
+
+Configure the frontend Node application as follows:
 
 - Root Directory: `frontend`
-- Build Command: `npm install && npm run build`
+- Install Command: `npm ci --include=dev`
+- Build Command: `npm run build`
 - Start Command: `npm start`
-- Environment Variable `VITE_API_URL`: the backend's HTTPS base URL, for example `https://your-api.onrender.com` (do not add `/api`)
+- Environment Variable `VITE_API_URL`: the backend's HTTPS base URL (do not add `/api`)
 
-The `frontend/server.js` Node process serves the built `dist` files and sends React routes such as `/admin` back to `index.html`. It listens on Render's `PORT` and `0.0.0.0`. Set `VITE_API_URL` before building, because Vite embeds that value into the frontend bundle. After Render assigns the frontend service URL, set the backend's `FRONTEND_URL` to that exact HTTPS URL and redeploy the backend. HTTPS is required for camera access outside localhost. Render's [web service deployment guide](https://render.com/docs/web-services) describes the root directory, build command, start command, and environment settings.
+If Rodline provides one combined build command instead of separate install and build fields, use `npm ci --include=dev && npm run build`. `frontend/server.js` serves the built `dist` files and sends React routes such as `/admin` back to `index.html`. It listens on the hosting platform's `PORT` and `0.0.0.0`. Set `VITE_API_URL` before building, because Vite embeds that value into the frontend bundle. Set the backend's `FRONTEND_URL` to the frontend's exact HTTPS URL. HTTPS is required for camera access outside localhost.
 
 The backend regenerates missing QR PNG files from ticket IDs at startup. The database is the durable source of ticket data; do not rely on the web service's local QR image folder as persistent storage.
 

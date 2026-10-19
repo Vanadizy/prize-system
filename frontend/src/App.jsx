@@ -1,78 +1,45 @@
-// App.jsx
-import { BrowserRouter as Router, Routes, Route, Link, useLocation } from "react-router-dom";
-import Register from "./pages/Register";
+import React from "react";
+import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate, useNavigate } from "react-router-dom";
 import AdminPanel from "./pages/AdminPanel";
 import Login from "./pages/login";
-import ReceptionDashboard from "./pages/Receiption";
-import DrinksDashboard from "./pages/DrinksPanel";
-import Profile from "./pages/profile";
+import ContestantPage from "./pages/Receiption";
 
-// Component to encapsulate the Navbar logic and conditional rendering
-function NavigationBar() {
+const API_URL = `${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api`;
+
+function AdminRoute() {
+  const [status, setStatus] = React.useState("checking");
+  React.useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token) { setStatus("unauthorized"); return; }
+    fetch(`${API_URL}/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => setStatus(data?.user?.role === "admin" ? "authorized" : "unauthorized"))
+      .catch(() => setStatus("unauthorized"));
+  }, []);
+  if (status === "checking") return <div className="p-8 text-center text-slate-600">Checking administrator access…</div>;
+  if (status !== "authorized") return <Navigate to="/login" replace />;
+  return <AdminPanel />;
+}
+
+function AppBar() {
   const location = useLocation();
-
-  // Condition: Don't show the Navbar on the login page ("/")
-  if (location.pathname === "/" || location.pathname === "/login") {
-    return null;
-  }
-
-  // Tailwind classes for fixed, navy blue, blur, and styling
-  // bg-indigo-900 is used for the navbar to match the navy theme
-  const navbarClasses = "fixed top-0 left-0 w-full z-50 p-4 shadow-xl text-white " +
-                        "bg-indigo-900 bg-opacity-90 backdrop-blur-sm h-16"; 
-  
-  const linkClasses = "flex items-center gap-2 font-medium hover:text-indigo-200 transition duration-150 p-2 rounded-md";
-
-  return (
-    <nav className={navbarClasses}>
-      <div className="flex justify-between items-center w-full">
-        {/* Left Side: Profile Link */}
-        <div className="flex gap-4 items-center">
-            {/* You might want a logo/home link here too, e.g., to /admin */}
-            <Link to="/profile" className={linkClasses}>
-                <span role="img" aria-label="profile">👤</span> Profile
-            </Link>
-        </div>
-        
-        {/* Right Side: Logout Link */}
-        <div className="flex gap-4">
-          <Link 
-            to="/login" 
-            className={`${linkClasses} bg-indigo-700 hover:bg-red-600`}
-            // In a real app, you would add an onClick handler here to clear the session/token
-          >
-            <span role="img" aria-label="logout">🚪</span> Logout
-          </Link>
-        </div>
-      </div>
-    </nav>
-  );
+  const navigate = useNavigate();
+  if (location.pathname === "/login") return null;
+  const signedIn = Boolean(localStorage.getItem("token"));
+  return <nav className="sticky top-0 z-50 border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur">
+    <div className="mx-auto flex h-[72px] max-w-7xl items-center justify-between px-4 sm:px-8">
+      <Link to="/" className="flex items-center gap-3 text-slate-950"><span className="grid h-10 w-10 place-items-center rounded-xl bg-blue-800 text-xl font-black text-white">P</span><span><strong className="block text-base leading-tight">Prize Check</strong><span className="text-xs text-slate-500">Contest code portal</span></span></Link>
+      <div className="flex items-center gap-2 sm:gap-3">{location.pathname === "/" || location.pathname === "/reception" ? <><Link to="/" className="rounded-lg px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100">Check a prize</Link><Link to="/login" className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Admin login</Link></> : signedIn ? <><Link to="/admin" className="rounded-lg bg-blue-800 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Admin dashboard</Link><button onClick={() => { localStorage.removeItem("token"); navigate("/"); }} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Log out</button></> : <Link to="/login" className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Admin login</Link>}</div>
+    </div>
+  </nav>;
 }
 
 export default function App() {
-  // Using Tailwind to approximate the linear-gradient(135deg, #1e3c72 0%, #2a5298 100%)
-  // by using gradient-to-br (bottom-right) with deep blue shades (indigo-900 to blue-900).
-  const backgroundClasses = "pt-16 min-h-screen " +
-                            "bg-gradient-to-br from-indigo-900 to-blue-900";
-
-  return (
-    <Router>
-      {/* 1. The conditional Navbar is rendered first */}
-      <NavigationBar />
-
-      {/* 2. Content wrapper with pt-16 (padding-top: 4rem) and the new gradient background */}
-      <div className={backgroundClasses}>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/" element={<Login />} />
-          <Route path="/admin" element={<AdminPanel />} />
-          <Route path="/register" element={<Register />} />
-          <Route path="/reception" element={<ReceptionDashboard />} />
-          <Route path="/drinks" element={<DrinksDashboard />} />
-          {/* Added the route for the /profile link in the navbar */}
-          <Route path="/profile" element={<Profile />} />
-        </Routes>
-      </div>
-    </Router>
-  );
+  return <Router><AppBar /><Routes>
+    <Route path="/" element={<ContestantPage />} />
+    <Route path="/reception" element={<ContestantPage />} />
+    <Route path="/login" element={<Login />} />
+    <Route path="/admin" element={<AdminRoute />} />
+    <Route path="*" element={<Navigate to="/" replace />} />
+  </Routes></Router>;
 }

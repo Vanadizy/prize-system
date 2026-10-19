@@ -1,0 +1,10 @@
+node_modules/
+**/.env
+**/.env.*
+!**/.env.example
+frontend/dist/
+backend/qrcodes/*
+!backend/qrcodes/.gitkeep
+*.dump
+*.dump/
+*.backup

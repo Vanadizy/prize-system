@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 
+const API_URL = `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api`;
+
 const styles = {
     // ...same styles as before
     container: {
@@ -92,7 +94,7 @@ function LoginPage() {
         }
         setLoading(true);
         try {
-            const res = await fetch('https://guestsystem.onrender.com/api/login', {
+            const res = await fetch(`${API_URL}/login`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -116,8 +118,8 @@ function LoginPage() {
                     window.location.href = '/admin';
                 }
             }
-        } catch (err) {
-            setError('Network error. Please try again.');
+        } catch {
+            setError('Could not reach the contest server. Check the backend URL and try again.');
         }
         setLoading(false);
     };

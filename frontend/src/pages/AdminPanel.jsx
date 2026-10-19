@@ -1,478 +1,266 @@
-// AdminPanel.jsx - The code below is the same as your last provided version,
-// but included for completeness. It's ready to handle the new server logic.
-
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import axios from "axios";
 
+const API_ORIGIN = import.meta.env.VITE_API_URL || "http://localhost:5000";
+const API_URL = `${API_ORIGIN}/api`;
+const blankPrize = { outcome: "", prize: "", description: "" };
+
+function toLocalDateTime(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+
+function toIsoDateTime(value) {
+  return value ? new Date(value).toISOString() : null;
+}
+
+async function errorMessage(error, fallback) {
+  const body = error.response?.data;
+  if (body instanceof Blob) {
+    try { return JSON.parse(await body.text()).message || fallback; } catch { return fallback; }
+  }
+  return body?.message || fallback;
+}
+
+function saveBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export default function AdminPanel() {
-  const [guests, setGuests] = useState([]);
-  // [FIX] Initial total state can be 0 or null, but the calculation will use the array length.
-  const [total, setTotal] = useState(0);
-  const [form, setForm] = useState({ fullname: "", phonenumber: "", sex: "", state: "" });
-  const [searchPhone, setSearchPhone] = useState("");
-  const [editingGuest, setEditingGuest] = useState(null);
-  
-  // NEW: State for status messages { type: 'success' | 'error', text: '...' }
-  const [message, setMessage] = useState(null); 
+  const [codes, setCodes] = useState([]);
+  const [range, setRange] = useState({ start: "", end: "" });
+  const [ticketWindow, setTicketWindow] = useState({ startsAt: "", expiresAt: "" });
+  const [credentials, setCredentials] = useState({ currentPassword: "", username: "", newPassword: "" });
+  const [authToken, setAuthToken] = useState(() => localStorage.getItem("token"));
+  const [prize, setPrize] = useState(blankPrize);
+  const [editingId, setEditingId] = useState(null);
+  const [selected, setSelected] = useState([]);
+  const [search, setSearch] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const auth = useMemo(() => ({ Authorization: `Bearer ${authToken}` }), [authToken]);
 
-  // NEW: Ref to target the form area for scrolling
-  const formRef = useRef(null);
+  const loadCodes = useCallback(async () => {
+    try {
+      const { data } = await axios.get(`${API_URL}/contestants`, { headers: auth });
+      setCodes(data.contestants || []);
+    } catch (error) { setMessage(error.response?.data?.message || "Could not load prize IDs."); }
+  }, [auth]);
+  useEffect(() => {
+    loadCodes();
+    const refreshTimer = window.setInterval(loadCodes, 5000);
+    return () => window.clearInterval(refreshTimer);
+  }, [loadCodes]);
 
-  // NOTE: Ensure your API_URL includes the correct IP and port.
-  const API_URL = "https://guestsystem.onrender.com/api/guests";
-  const sexOptions = ["Male", "Female"];
-  const stateOptions = ["single", "double"];
-  const roleOptions = ["guest", "reception", "drinks"];
+  const loadTicketWindow = useCallback(async () => {
+    try {
+      const { data } = await axios.get(`${API_URL}/settings/ticket-window`, { headers: auth });
+      setTicketWindow({ startsAt: toLocalDateTime(data.ticketWindow?.starts_at), expiresAt: toLocalDateTime(data.ticketWindow?.expires_at) });
+    } catch (error) { setMessage(error.response?.data?.message || "Could not load ticket expiry settings."); }
+  }, [auth]);
+  useEffect(() => { loadTicketWindow(); }, [loadTicketWindow]);
 
-  // Helper function to show a message, then clear it after 3 seconds
-  const showMessage = (type, text) => {
-    setMessage({ type, text });
-    setTimeout(() => setMessage(null), 3000);
-  };
+  const visibleCodes = useMemo(() => codes.filter((code) => {
+    const q = search.trim().toLowerCase();
+    return !q || String(code.id).includes(q) || code.prize?.toLowerCase().includes(q) || code.description?.toLowerCase().includes(q) || code.outcome?.includes(q);
+  }), [codes, search]);
+  const usedCount = useMemo(() => codes.filter((code) => code.used_at).length, [codes]);
+  const remainingCount = codes.length - usedCount;
+  const validRange = () => {
+    const start = Number(range.start); const end = Number(range.end);
+    return Number.isSafeInteger(start) && Number.isSafeInteger(end) && start > 0 && end >= start && end - start < 5000;
+  };
 
-  const fetchGuests = async () => {
-    try {
-      // [FIX] The server now returns { guests: [...] }, not { guests: [...], total: N }
-      // The total must be derived from the length of the guests array.
-      const token = localStorage.getItem('token'); // Retrieve token
-      const res = await axios.get(API_URL, {
-        headers: {
-          Authorization: `Bearer ${token}` // Add Authorization header
-        }
-      });
-      
-      const fetchedGuests = res.data.guests || [];
-      setGuests(fetchedGuests);
-      // [FIX] Calculate total from the fetched array length
-      setTotal(fetchedGuests.length); 
-    } catch (err) {
-      // [FIX] Added better error handling for token/auth issues
-      const errorMsg = err.response?.status === 401 || err.response?.status === 403 
-        ? "Authentication failed. Please log in again." 
-        : "Failed to fetch guests.";
-      showMessage("error", errorMsg);
-      console.error("Fetch guests error:", err);
-    }
-  };
+  const createRange = async () => {
+    if (!validRange()) { setMessage("Enter a valid positive ID range (up to 5,000 codes)."); return; }
+    setBusy(true);
+    try {
+      const { data } = await axios.post(`${API_URL}/contestants/range`, { start: Number(range.start), end: Number(range.end) }, { headers: auth });
+      setMessage(`${data.message}${data.skipped?.length ? ` Skipped ${data.skipped.length} IDs that already existed.` : ""}`);
+      await loadCodes();
+    } catch (error) { setMessage(await errorMessage(error, "Could not generate the QR codes.")); }
+    finally { setBusy(false); }
+  };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
+  const saveTicketWindow = async () => {
+    if (!ticketWindow.startsAt || !ticketWindow.expiresAt) { setMessage("Choose both a start time and an expiration time."); return; }
+    if (new Date(ticketWindow.startsAt) >= new Date(ticketWindow.expiresAt)) { setMessage("The expiration time must be after the start time."); return; }
+    setBusy(true);
+    try {
+      const { data } = await axios.put(`${API_URL}/settings/ticket-window`, { startsAt: toIsoDateTime(ticketWindow.startsAt), expiresAt: toIsoDateTime(ticketWindow.expiresAt) }, { headers: auth });
+      setMessage(data.message);
+      await loadTicketWindow();
+    } catch (error) { setMessage(error.response?.data?.message || "Could not save ticket expiry settings."); }
+    finally { setBusy(false); }
+  };
 
-      if (editingGuest) {
-        // UPDATE Guest
-        await axios.put(`${API_URL}/${editingGuest.id}`, form, { headers });
-        setEditingGuest(null);
-        showMessage("success", "Guest updated successfully!");
-      } else {
-        // ADD New Guest
-        await axios.post(API_URL, form, { headers });
-        showMessage("success", "Guest added successfully!");
-      }
-      setForm({ fullname: "", phonenumber: "", sex: "", state: "" });
-      fetchGuests();
-    } catch (err) {
-      showMessage("error", err.response?.data?.message || "Error occurred during submission.");
-    }
-  };
+  const clearTicketWindow = async () => {
+    setBusy(true);
+    try {
+      const { data } = await axios.put(`${API_URL}/settings/ticket-window`, { startsAt: null, expiresAt: null }, { headers: auth });
+      setTicketWindow({ startsAt: "", expiresAt: "" });
+      setMessage(data.message);
+    } catch (error) { setMessage(error.response?.data?.message || "Could not clear ticket expiry settings."); }
+    finally { setBusy(false); }
+  };
 
-  const handleEdit = (guest) => {
-    setEditingGuest(guest);
-    setForm({ 
-      fullname: guest.fullname || "", 
-      phonenumber: guest.phonenumber || "", 
-      sex: guest.sex || "", 
-      state: guest.state || "" 
-    });
-    showMessage(null, null); // Clear existing messages
-    
-    // NEW: Scroll automatically to the form section
-    if (formRef.current) {
-      formRef.current.scrollIntoView({block: 'start' });
-    }
-  };
+  const updateCredentials = async () => {
+    if (!credentials.currentPassword || !credentials.username.trim() || !credentials.newPassword) {
+      setMessage("Enter your current password, a new username, and a new password.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const { data } = await axios.put(`${API_URL}/admin/credentials`, { ...credentials, username: credentials.username.trim() }, { headers: auth });
+      localStorage.setItem("token", data.token);
+      setAuthToken(data.token);
+      setCredentials({ currentPassword: "", username: "", newPassword: "" });
+      setMessage(data.message);
+    } catch (error) { setMessage(error.response?.data?.message || "Could not update administrator credentials."); }
+    finally { setBusy(false); }
+  };
 
-  const handleChange = e => {
-      setForm({ ...form, [e.target.name]: e.target.value });
-  };
+  const downloadRange = async () => {
+    if (!validRange()) { setMessage("Enter a valid ID range first."); return; }
+    setBusy(true);
+    try {
+      const response = await axios.get(`${API_URL}/contestants/qrcodes.zip`, { params: range, headers: auth, responseType: "blob" });
+      saveBlob(response.data, `qrcodes_${range.start}-${range.end}.zip`);
+      setMessage("QR code ZIP downloaded.");
+    } catch (error) { setMessage(await errorMessage(error, "Could not download that range.")); }
+    finally { setBusy(false); }
+  };
 
-  const handleSearch = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
+  const downloadOne = async (id) => {
+    try {
+      const response = await axios.get(`${API_URL}/contestants/${id}/qrcode`, { headers: auth, responseType: "blob" });
+      saveBlob(response.data, `qrcode_${id}.png`);
+    } catch (error) { setMessage(await errorMessage(error, `Could not download QR ${id}.`)); }
+  };
 
-      if (!searchPhone.trim()) return fetchGuests();
-          
-      const res = await axios.get(`${API_URL}/search?phonenumber=${searchPhone}`, { headers });
-        
-      // [FIX] Handle total count for search results as well
-      const searchResults = res.data || [];
-      setGuests(searchResults);
-      setTotal(searchResults.length); 
-    } catch (err) {
-      showMessage("error", err.response?.data?.message || "Error searching guests.");
-    }
-  };
+  const downloadSelected = async () => {
+    if (!selected.length) { setMessage("Select one or more QR codes first."); return; }
+    setBusy(true);
+    try {
+      const response = await axios.post(`${API_URL}/contestants/qrcodes/selected.zip`, { ids: selected }, { headers: auth, responseType: "blob" });
+      saveBlob(response.data, "selected_qrcodes.zip");
+      setMessage(`Downloaded ${selected.length} selected QR code${selected.length === 1 ? "" : "s"}.`);
+    } catch (error) { setMessage(await errorMessage(error, "Could not download selected QR codes.")); }
+    finally { setBusy(false); }
+  };
 
-  const updateRole = async (id, role) => {
-    try {
-      await axios.put(`${API_URL}/${id}/role`, { role }, { 
-        headers: {
-          "Content-Type": "application/json",
-        }
+  const editCode = (code) => {
+    setEditingId(code.id);
+    setSelected([code.id]);
+    setPrize({ outcome: code.outcome || "", prize: code.prize || "", description: code.description || "" });
+  };
 
- });
-      showMessage("success", `Role updated to ${role} for guest ${id}.`);
-      fetchGuests();
-    } catch (err) {
-      showMessage("error", "Failed to update role and user account");
-    }
-  };
+  const savePrize = async () => {
+    if (!selected.length) { setMessage("Select one or more prize IDs first."); return; }
+    if (!prize.outcome) { setMessage("Choose Winner or Not a winner."); return; }
+    if (prize.outcome === "winner" && (!prize.prize.trim() || !prize.description.trim())) { setMessage("Enter both a prize title and prize message for a winner."); return; }
+    if (prize.outcome === "not_winner" && !prize.description.trim()) { setMessage("Enter a try again message."); return; }
+    const payload = { outcome: prize.outcome, prize: prize.outcome === "winner" ? prize.prize.trim() : "", description: prize.description.trim() };
+    setBusy(true);
+    try {
+      if (selected.length === 1) {
+        const { data } = await axios.put(`${API_URL}/contestants/${selected[0]}`, payload, { headers: auth });
+        setMessage(data.message);
+      } else {
+        const { data } = await axios.post(`${API_URL}/contestants/bulk-update`, { ids: selected, ...payload }, { headers: auth });
+        setMessage(data.message);
+      }
+      await loadCodes();
+      setPrize(blankPrize);
+      setEditingId(null);
+    } catch (error) { setMessage(error.response?.data?.message || "Could not save prize information."); }
+    finally { setBusy(false); }
+  };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this guest?")) return;
-    try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
+  const toggle = (id) => setSelected((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  const selectVisible = () => {
+    const all = visibleCodes.length && visibleCodes.every((code) => selected.includes(code.id));
+    setSelected((current) => all ? current.filter((id) => !visibleCodes.some((code) => code.id === id)) : [...new Set([...current, ...visibleCodes.map((code) => code.id)])]);
+  };
 
-      await axios.delete(`${API_URL}/${id}`, { headers });
-      showMessage("success", "Guest and associated user deleted successfully!");
-      fetchGuests();
-    } catch (err) {
-      showMessage("error", "Failed to delete guest.");
-    }
-  };
+  return (
+    <main className="min-h-screen bg-slate-100 px-4 py-8 text-slate-900 sm:px-8">
+      <div className="mx-auto max-w-7xl">
+        <header className="mb-7 rounded-2xl bg-gradient-to-r from-slate-950 via-blue-950 to-indigo-800 p-7 text-white shadow-lg">
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-blue-200">Administrator workspace</p>
+          <h1 className="mt-2 text-3xl font-bold">Prize code management</h1>
+          <p className="mt-2 text-blue-100">Create numbered QR codes, assign prize details, preview every code, and download codes for printing.</p>
+          <div className="mt-5 grid gap-3 sm:grid-cols-3"><div className="rounded-xl bg-white/10 px-4 py-3"><p className="text-sm text-blue-100">Total tickets</p><p className="mt-1 text-2xl font-bold">{codes.length}</p></div><div className="rounded-xl bg-white/10 px-4 py-3"><p className="text-sm text-blue-100">Used tickets</p><p className="mt-1 text-2xl font-bold">{usedCount}</p></div><div className="rounded-xl bg-white/10 px-4 py-3"><p className="text-sm text-blue-100">Remaining tickets</p><p className="mt-1 text-2xl font-bold">{remainingCount}</p></div></div><p className="mt-3 text-sm text-blue-100">{selected.length} selected</p>
+        </header>
 
-  const handleDeleteAll = async () => {
-    if (!window.confirm("Are you sure you want to delete ALL guests?")) return;
-    try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
+        {message && <div role="status" className="mb-5 flex items-center justify-between gap-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-950"><span>{message}</span><button onClick={() => setMessage("")} aria-label="Dismiss" className="text-lg">×</button></div>}
 
-      await axios.delete(`${API_URL}`, { headers });
-      showMessage("success", "All guests and non-admin users deleted successfully!");
-      fetchGuests();
-    } catch (err) {
-      showMessage("error", "Failed to delete all guests.");
-    }
-  };
+        <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div><p className="text-xs font-bold uppercase tracking-wider text-blue-800">Step 1</p><h2 className="mt-1 text-xl font-bold">Generate QR codes</h2><p className="mt-1 text-sm text-slate-600">Codes are saved as <code>backend/qrcodes/qrcode_ID.png</code>.</p></div>
+          <div className="mt-5 grid gap-4 sm:grid-cols-[1fr_1fr_auto_auto] sm:items-end">
+            <label className="text-sm font-semibold">First ID<input type="number" min="1" value={range.start} onChange={(e) => setRange({ ...range, start: e.target.value })} placeholder="e.g. 1001" className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal" /></label>
+            <label className="text-sm font-semibold">Last ID<input type="number" min="1" value={range.end} onChange={(e) => setRange({ ...range, end: e.target.value })} placeholder="e.g. 1100" className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal" /></label>
+            <button disabled={busy} onClick={createRange} className="rounded-lg bg-blue-800 px-5 py-2.5 font-semibold text-white hover:bg-blue-700 disabled:opacity-50">Create range</button>
+            <button disabled={busy} onClick={downloadRange} className="rounded-lg border border-blue-800 px-5 py-2.5 font-semibold text-blue-900 hover:bg-blue-50 disabled:opacity-50">Download range ZIP</button>
+          </div>
+        </section>
 
-  // [FIX] The original useEffect calls fetchGuests, which now correctly sets total.
-  useEffect(() => { 
-    fetchGuests(); 
-  }, []);
+        <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <p className="text-xs font-bold uppercase tracking-wider text-blue-800">Ticket availability</p>
+          <h2 className="mt-1 text-xl font-bold">Set the scan time window</h2>
+          <p className="mt-1 text-sm text-slate-600">Tickets can be scanned from the start time through the expiration time. Times use this device’s local timezone. Leave limits cleared to allow scans at any time.</p>
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            <label className="text-sm font-semibold">Valid from<input type="datetime-local" value={ticketWindow.startsAt} onChange={(event) => setTicketWindow((current) => ({ ...current, startsAt: event.target.value }))} className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal" /></label>
+            <label className="text-sm font-semibold">Expires at<input type="datetime-local" value={ticketWindow.expiresAt} onChange={(event) => setTicketWindow((current) => ({ ...current, expiresAt: event.target.value }))} className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal" /></label>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-3"><button disabled={busy} onClick={saveTicketWindow} className="rounded-lg bg-blue-800 px-5 py-2.5 font-semibold text-white hover:bg-blue-700 disabled:opacity-50">Save scan window</button><button disabled={busy} onClick={clearTicketWindow} className="rounded-lg border border-slate-300 px-5 py-2.5 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">Clear time limits</button></div>
+        </section>
 
-  const styles = {
-    // ... (Your existing styles remain unchanged)
-    container: {
-      minHeight: "100vh",
-      background: "linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)",
-      color: "#222",
-      padding: "2rem",
-      fontFamily: "Segoe UI, Arial, sans-serif"
-    },
-    header: {
-      background: "#2563eb",
-      color: "#fff",
-      borderRadius: "12px",
-      padding: "1.5rem 2rem",
-      marginBottom: "2rem",
-      boxShadow: "0 2px 8px rgba(37,99,235,0.12)"
-    },
-    card: {
-      background: "#fff",
-      color: "#222",
-      borderRadius: "12px",
-      padding: "2rem",
-      marginBottom: "2rem",
-      boxShadow: "0 2px 8px rgba(0,0,0,0.06)"
-    },
-    button: {
-      background: "linear-gradient(90deg, #2563eb, #1e40af)",
-      color: "#fff",
-      border: "none",
-      padding: "0.5rem 1.2rem",
-      borderRadius: "8px",
-      cursor: "pointer",
-      fontWeight: 600,
-      fontSize: "1rem",
-      transition: "background 0.2s"
-    },
-    tableWrapper: {
-      overflowX: "auto",
-    },
-    table: {
-      width: "100%",
-      borderCollapse: "collapse",
-      marginTop: "1rem",
-      fontSize: "1rem",
-      minWidth: "600px"
-    },
-    th: {
-      background: "#2563eb",
-      color: "#fff",
-      padding: "0.75rem",
-      borderBottom: "2px solid #e5e7eb",
-      textAlign: "left"
-    },
-    td: {
-      borderBottom: "1px solid #e5e7eb",
-      padding: "0.75rem",
-      textAlign: "left",
-      verticalAlign: "middle"
-    },
-    input: {
-      padding: "0.5rem 1rem",
-      borderRadius: "6px",
-      border: "1px solid #cbd5e1",
-      marginRight: "1rem",
-      marginBottom: "1rem",
-      fontSize: "1rem",
-      width: "calc(100% - 2rem)"
-    },
-    select: {
-      padding: "0.5rem",
-      borderRadius: "6px",
-      border: "1px solid #cbd5e1",
-      fontSize: "1rem"
-    },
-    label: {
-      fontWeight: 500,
-      marginBottom: "0.25rem",
-      display: "block"
-    },
-    // NEW: Styles for message box
-    messageBox: (type) => ({
-      padding: '1rem',
-      borderRadius: '8px',
-      marginBottom: '1rem',
-      fontWeight: 'bold',
-      backgroundColor: type === 'success' ? '#d1fae5' : '#fee2e2',
-      color: type === 'success' ? '#065f46' : '#991b1b',
-      border: `1px solid ${type === 'success' ? '#a7f3d0' : '#fca5a5'}`,
-      textAlign: 'center'
-    })
-  };
+        <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <p className="text-xs font-bold uppercase tracking-wider text-blue-800">Account security</p>
+          <h2 className="mt-1 text-xl font-bold">Change administrator credentials</h2>
+          <p className="mt-1 text-sm text-slate-600">Confirm your current password. A new password must be at least 8 characters. Other administrator sessions will be signed out.</p>
+          <div className="mt-5 grid gap-4 sm:grid-cols-3">
+            <label className="text-sm font-semibold">Current password<input type="password" autoComplete="current-password" value={credentials.currentPassword} onChange={(event) => setCredentials((current) => ({ ...current, currentPassword: event.target.value }))} className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal" /></label>
+            <label className="text-sm font-semibold">New username<input type="text" autoComplete="username" minLength={3} maxLength={50} value={credentials.username} onChange={(event) => setCredentials((current) => ({ ...current, username: event.target.value }))} className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal" placeholder="Letters, numbers, . _ -" /></label>
+            <label className="text-sm font-semibold">New password<input type="password" autoComplete="new-password" minLength={8} maxLength={128} value={credentials.newPassword} onChange={(event) => setCredentials((current) => ({ ...current, newPassword: event.target.value }))} className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal" /></label>
+          </div>
+          <button disabled={busy} onClick={updateCredentials} className="mt-4 rounded-lg bg-blue-800 px-5 py-2.5 font-semibold text-white hover:bg-blue-700 disabled:opacity-50">Update admin login</button>
+        </section>
 
-  return (
-    <div style={styles.container}>
-      {/* Header */}
-      <div style={styles.header}>
-        <h1 style={{ fontSize: "2.5rem", fontWeight: 700, marginBottom: "0.5rem" }}>Admin Dashboard</h1>
-        <p style={{ fontSize: "1.1rem", opacity: 0.85 }}>Manage guests, roles, and search records efficiently.</p>
-        <h3>Total Guests: {total}</h3> {/* This now shows the correct count! */}
-      </div>
-      <div style={{ marginBottom: "2rem", textAlign: "right" }}>
-        <a
-          href="/register"
-          style={{
-            ...styles.button,
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "0.5rem",
-            fontSize: "1.1rem"
-          }}
-        >
-          <span style={{
-            display: "inline-block",
-            width: "1.5em",
-            height: "1.5em",
-            borderRadius: "50%",
-            background: "#fff",
-            color: "#2563eb",
-            fontWeight: "bold",
-            textAlign: "center",
-            lineHeight: "1.5em",
-            fontSize: "1.2em"
-          }}>+</span>
-          New Admin
-        </a>
-      </div>
-      
-      {/* NEW: Message Box */}
-      {message && (
-        <div style={styles.messageBox(message.type)}>
-          {message.text}
-        </div>
-      )}
-      
-      {/* Add/Edit Form */}
-      {/* NEW: Attach the ref here */}
-      <div style={styles.card} ref={formRef}>
-        <h2 style={{ fontSize: "1.5rem", fontWeight: 600, marginBottom: "1rem" }}>
-          {editingGuest ? "Edit Guest" : "Add New Guest"}
-        </h2>
-        <form onSubmit={handleSubmit} style={{ display: "flex", flexWrap: "wrap", gap: "1rem" }}>
-          <div style={{ flex: "1 1 200px" }}>
-            <label style={styles.label}>Full Name</label>
-            <input
-              style={styles.input}
-              placeholder="Full Name"
-              name="fullname"
-              value={form.fullname}
-              onChange={handleChange}
-              required
-            />
-          </div>
-          <div style={{ flex: "1 1 200px" }}>
-            <label style={styles.label}>Phone Number</label>
-            <input
-              style={styles.input}
-              placeholder="Phone Number"
-              name="phonenumber"
-              value={form.phonenumber}
-              onChange={handleChange}
-              required
-            />
-          </div>
-          <div style={{ flex: "1 1 120px" }}>
-            <label style={styles.label}>Sex</label>
-            <select
-              style={styles.select}
-              name="sex"
-              value={form.sex}
-              onChange={handleChange}
-              required
-            >
-              <option value="">Select Sex</option>
-              {sexOptions.map(opt => (
-                <option key={opt} value={opt}>{opt}</option>
-              ))}
-            </select>
-            </div>
-          <div style={{ flex: "1 1 120px" }}>
-            <label style={styles.label}>State</label>
-            <select
-              style={styles.select}
-              name="state"
-              value={form.state}
-              onChange={handleChange}
-              required
-            >
-              <option value="">Select State</option>
-              {stateOptions.map(opt => (
-                <option key={opt} value={opt}>{opt.charAt(0).toUpperCase() + opt.slice(1)}</option>
-              ))}
-            </select>
-          </div>
-          <div style={{ alignSelf: "flex-end" }}>
-            <button style={styles.button} type="submit">
-              {editingGuest ? "Update" : "Add Guest"}
-            </button>
-            {editingGuest && (
-              <button 
-                type="button" 
-                onClick={() => { setEditingGuest(null); setForm({ fullname: "", phonenumber: "", sex: "", state: "" }); }}
-                style={{ ...styles.button, background: "#64748b", marginLeft: "0.5rem" }}
-              >
-                Cancel
-              </button>
-            )}
-          </div>
-        </form>
-      </div>
+        <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-wider text-blue-800">Step 2</p><h2 className="mt-1 text-xl font-bold">Set winner status and prize details</h2><p className="mt-1 text-sm text-slate-600">Select one code or several, then enter the message shown for that result.</p></div><span className="rounded-full bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-900">{selected.length} selected</span></div>
+          <div className="mt-5 grid gap-3 md:grid-cols-2">
+            <select value={prize.outcome} onChange={(e) => setPrize({ outcome: e.target.value, prize: "", description: "" })} className="rounded-lg border border-slate-300 px-3 py-2.5"><option value="">Choose result</option><option value="winner">Winner</option><option value="not_winner">Not a winner</option></select>
+            {prize.outcome === "winner" && <>
+              <input value={prize.prize} onChange={(e) => setPrize({ ...prize, prize: e.target.value })} aria-label="Prize title" className="rounded-lg border border-slate-300 px-3 py-2.5" placeholder="Prize title" />
+              <input value={prize.description} onChange={(e) => setPrize({ ...prize, description: e.target.value })} aria-label="Prize message" className="rounded-lg border border-slate-300 px-3 py-2.5" placeholder="Prize message" />
+            </>}
+            {prize.outcome === "not_winner" && <input value={prize.description} onChange={(e) => setPrize({ ...prize, description: e.target.value })} aria-label="Try again message" className="rounded-lg border border-slate-300 px-3 py-2.5" placeholder="Try again message" />}
+          </div>
+          <div className="mt-4 flex flex-wrap gap-3"><button disabled={busy || !selected.length} onClick={savePrize} className="rounded-lg bg-emerald-700 px-5 py-2.5 font-semibold text-white hover:bg-emerald-600 disabled:opacity-50">Save prize details</button>{editingId && <button onClick={() => { setSelected([]); setEditingId(null); setPrize(blankPrize); }} className="rounded-lg border border-slate-300 px-4 py-2.5 font-semibold">Clear selection</button>}<button disabled={busy || !selected.length} onClick={downloadSelected} className="rounded-lg border border-blue-800 px-5 py-2.5 font-semibold text-blue-900 hover:bg-blue-50 disabled:opacity-50">Download selected QR ZIP</button></div>
+        </section>
 
-      {/* Search Section */}
-      <div style={styles.card}>
-        <form onSubmit={e => { e.preventDefault(); handleSearch(); }} style={{ display: "flex", alignItems: "center", gap: "1rem", flexWrap: "wrap" }}>
-          <input
-            style={{...styles.input, flexGrow: 1}} // Adjusted style for better layout
-            placeholder="Search by phone number"
-            value={searchPhone}
-            onChange={e => setSearchPhone(e.target.value)}
-          />
-          <button style={styles.button} type="submit">Search</button>
-          <button
-            style={{ ...styles.button, background: "linear-gradient(90deg, #dc2626, #b91c1c)" }}
-            type="button"
-            onClick={handleDeleteAll}
-          >
-            Delete All
-          </button>
-        </form>
-      </div>
-
-      {/* Guest Table */}
-      <div style={styles.card}>
-        <h2 style={{ fontSize: "1.25rem", fontWeight: 600, marginBottom: "1rem" }}>Guest List</h2>
-        <div style={styles.tableWrapper}>
-          <table style={styles.table}>
-            <thead>
-              <tr>
-                <th style={styles.th}>Fullname</th>
-                <th style={styles.th}>Phone</th>
-                <th style={styles.th}>Sex</th>
-                <th style={styles.th}>State</th>
-                <th style={styles.th}>Role</th>
-                <th style={styles.th}>QR Code</th>
-                <th style={styles.th}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {guests.map(g => (
-                <tr key={g.id}>
-                  <td style={styles.td}>{g.fullname}</td>
-                  <td style={styles.td}>{g.phonenumber}</td>
-                  <td style={styles.td}>{g.sex}</td>
-                  <td style={styles.td}>{g.state}</td>
-                  <td style={styles.td}>
-                    <select style={styles.select} value={g.role} onChange={e => updateRole(g.id, e.target.value)}>
-                      {roleOptions.map(opt => (
-                        <option key={opt} value={opt}>{opt}</option>
-                      ))}
-                    </select>
-                  </td>
-                  <td style={styles.td}>
-                    {g.qrcode ? (
-                      <>
-                        <img src={g.qrcode} alt="QR" width="70" height="70" style={{ borderRadius: "8px" }} />
-                        <br />
-                        <a
-                          href={g.qrcode}
-                          download={`QR_${g.fullname.replace(/\s+/g, "_")}.png`}
-                          style={{
-                            display: "inline-block",
-                            marginTop: "5px",
-                            textDecoration: "none",
-                            background: "#2563eb",
-                            color: "#fff",
-                            padding: "4px 8px",
-                            borderRadius: "6px",
-                            fontSize: "0.9rem"
-                          }}
-                        >
-                          Download
-                        </a>
-                      </>
-                    ) : "Pending"}
-                  </td>
-                  <td style={styles.td}>
-                    <button
-                      // NEW: Calls handleEdit which scrolls the view
-                      onClick={() => handleEdit(g)}
-                      style={{ ...styles.button, background: "linear-gradient(90deg, #22c55e, #16a34a)", marginRight: "0.5rem" }}
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDelete(g.id)}
-                      style={{ ...styles.button, background: "linear-gradient(90deg, #dc2626, #b91c1c)" }}
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <footer style={{ textAlign: "center", marginTop: "2rem", opacity: 0.7, fontSize: "1rem" }}>
-        Developed by vanadizy
-      </footer>
-    </div>
-  );
+        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 p-5"><div><p className="text-xs font-bold uppercase tracking-wider text-blue-800">Library</p><h2 className="mt-1 text-xl font-bold">All prize QR codes</h2><p className="text-sm text-slate-500">Select codes for a ZIP, preview them here, or download a single PNG.</p></div><input value={search} onChange={(e) => setSearch(e.target.value)} className="rounded-lg border border-slate-300 px-3 py-2.5" placeholder="Filter by ID or prize" /></div>
+          <div className="overflow-x-auto"><table className="w-full min-w-[850px] text-left text-sm">
+            <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th className="p-3"><input type="checkbox" aria-label="Select visible codes" checked={Boolean(visibleCodes.length && visibleCodes.every((code) => selected.includes(code.id)))} onChange={selectVisible} /></th><th className="p-3">QR</th><th className="p-3">Prize ID</th><th className="p-3">Ticket status</th><th className="p-3">Outcome</th><th className="p-3">Prize</th><th className="p-3">Details</th><th className="p-3">Actions</th></tr></thead>
+            <tbody className="divide-y divide-slate-100">{visibleCodes.map((code) => <tr key={code.id} className={selected.includes(code.id) ? "bg-blue-50" : "hover:bg-slate-50"}>
+              <td className="p-3"><input type="checkbox" checked={selected.includes(code.id)} onChange={() => toggle(code.id)} aria-label={`Select QR ${code.id}`} /></td>
+              <td className="p-2"><img src={`${API_ORIGIN}${code.qr_path || `/qrcodes/qrcode_${code.id}.png`}`} alt={`QR code ${code.id}`} loading="lazy" className="h-20 w-20 rounded-lg border border-slate-200 bg-white object-contain p-1" /></td>
+              <td className="p-3 font-bold">{code.id}</td><td className="p-3"><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${code.used_at ? "bg-rose-100 text-rose-800" : "bg-emerald-100 text-emerald-800"}`}>{code.used_at ? "Used" : "Unused"}</span>{code.used_at && <p className="mt-1 text-xs text-slate-500">{new Date(code.used_at).toLocaleString()}</p>}</td><td className="p-3 capitalize">{code.outcome?.replaceAll("_", " ") || <span className="text-slate-400">Not set</span>}</td><td className="p-3">{code.prize || <span className="text-slate-400">Not assigned</span>}</td><td className="max-w-xs p-3 text-slate-600">{[code.description, code.notes].filter(Boolean).join(" · ") || "—"}</td>
+              <td className="p-3"><div className="flex gap-3"><button onClick={() => editCode(code)} className="font-semibold text-blue-800 hover:underline">Edit prize</button><button onClick={() => downloadOne(code.id)} className="font-semibold text-emerald-800 hover:underline">Download PNG</button></div></td>
+            </tr>)}
+            {!visibleCodes.length && <tr><td colSpan="8" className="p-12 text-center text-slate-500">No QR codes yet. Create an ID range above.</td></tr>}</tbody>
+          </table></div>
+        </section>
+      </div>
+    </main>
+  );
 }

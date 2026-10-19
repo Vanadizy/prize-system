@@ -2,6 +2,8 @@ import { useEffect, useState, useRef, useMemo } from "react";
 import axios from "axios";
 import { Html5QrcodeScanner } from "html5-qrcode";
 
+const API_BASE_URL = `${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api`;
+
 // Define the base styles for the navy theme
 const NAVY_THEME = {
   pageBg: "bg-gray-100",
@@ -25,8 +27,8 @@ export default function DrinksDashboard() {
 
   const scannerRef = useRef(null);
 
-  const API_URL = "https://guestsystem.onrender.com/api/guests";
-  const DRINKS_SCAN_URL = "https://guestsystem.onrender.com/api/drinks/scan";
+  const API_URL = `${API_BASE_URL}/guests`;
+  const DRINKS_SCAN_URL = `${API_BASE_URL}/drinks/scan`;
 
   // Fetch guests and calculate stats
   const fetchGuests = async () => {

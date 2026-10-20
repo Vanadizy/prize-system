@@ -41,7 +41,7 @@ export default function App() {
     <Route path="/reception" element={<ContestantPage />} />
     <Route path="/login" element={<Login />} />
     <Route path="/admin" element={<AdminRoute />} />
-    <Route path="/ticket/:ticketId" element={<PublicTicket />} />
+    <Route path="/ticket/:token" element={<PublicTicket />} />
     <Route path="*" element={<Navigate to="/" replace />} />
   </Routes></Router>;
 }

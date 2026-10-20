@@ -4,19 +4,12 @@ import axios from "axios";
 
 const API_URL = `${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api`;
 
-function parseTicketId(value) {
-  const match = String(value ?? "").match(/^(?:QSN[\s_-]*)?(\d{1,5})$/i);
-  if (!match) return null;
-  const id = Number(match[1]);
-  return id >= 1 && id <= 9999 ? id : null;
-}
-
 function formatTicketId(value) {
   return `QSN ${String(value).padStart(5, "0")}`;
 }
 
 export default function PublicTicket() {
-  const { ticketId } = useParams();
+  const { token } = useParams();
   const [ticket, setTicket] = useState(null);
   const [logo, setLogo] = useState(null);
   const [used, setUsed] = useState(false);
@@ -24,10 +17,9 @@ export default function PublicTicket() {
 
   useEffect(() => {
     let active = true;
-    const id = parseTicketId(ticketId);
-    if (!id) { setStatus("unknown"); return () => { active = false; }; }
+    if (!/^[a-f0-9]{64}$/i.test(token || "")) { setStatus("unknown"); return () => { active = false; }; }
     Promise.all([
-      axios.get(`${API_URL}/public/contestants/${id}`),
+      axios.get(`${API_URL}/public/contestants/${token}`),
       axios.get(`${API_URL}/public/branding`).catch(() => ({ data: { logoDataUrl: null } })),
     ]).then(([ticketResponse, brandingResponse]) => {
       if (!active) return;
@@ -40,7 +32,7 @@ export default function PublicTicket() {
       setStatus(error.response?.status === 404 ? "unknown" : "error");
     });
     return () => { active = false; };
-  }, [ticketId]);
+  }, [token]);
 
   const winner = ticket?.outcome === "winner";
   const heading = ticket?.display_label || (winner ? "LUCKY TICKET" : "JARIBU TENA");

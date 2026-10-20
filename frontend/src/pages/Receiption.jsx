@@ -4,16 +4,17 @@ import { Html5QrcodeScanner } from "html5-qrcode";
 
 const API_URL = `${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api`;
 
-function parseTicketId(value) {
+function parseTicketInput(value) {
   let raw = String(value ?? "").trim();
   if (/^https?:\/\//i.test(raw)) {
     try { raw = new URL(raw).pathname.split("/").filter(Boolean).at(-1) || ""; }
     catch { return null; }
   }
+  if (/^[a-f0-9]{64}$/i.test(raw)) return { ticketToken: raw };
   const match = raw.match(/^(?:QSN[\s_-]*)?(\d{1,5})$/i);
   if (!match) return null;
   const id = Number(match[1]);
-  return id >= 1 && id <= 9999 ? id : null;
+  return id >= 1 && id <= 9999 ? { contestantId: id } : null;
 }
 
 function formatTicketId(value) {
@@ -33,8 +34,8 @@ export default function ContestantPage() {
 
   const lookup = useCallback(async (value) => {
     if (scanLock.current) return;
-    const id = parseTicketId(value);
-    if (!id) {
+    const parsedTicket = parseTicketInput(value);
+    if (!parsedTicket) {
       setMessage("Enter a valid QSN ticket ID or scan its QR code.");
       return;
     }
@@ -44,9 +45,9 @@ export default function ContestantPage() {
     setContestant(null);
     setPopup(null);
     try {
-      const { data } = await axios.post(`${API_URL}/contestants/scan`, { contestantId: id });
+      const { data } = await axios.post(`${API_URL}/contestants/scan`, parsedTicket);
       setContestant(data.contestant);
-      setPrizeId(formatTicketId(id));
+      setPrizeId(formatTicketId(data.contestant.id));
       setPopup(data.contestant);
     } catch (error) {
       setMessage(error.response?.data?.message || "Could not find that prize ID.");

@@ -1,9 +1,23 @@
--- Upgrade an existing contest database for QSN ticket labels, public QR URLs,
--- per-ticket display labels, and the campaign logo. Safe to run more than once.
+-- Upgrade an existing contest database for QSN ticket labels, opaque public QR
+-- tokens, per-ticket display labels, and the campaign logo. Safe to rerun.
 
 ALTER TABLE public.contestants
     ADD COLUMN IF NOT EXISTS display_label character varying(100),
-    ADD COLUMN IF NOT EXISTS qr_url text;
+    ADD COLUMN IF NOT EXISTS qr_url text,
+    ADD COLUMN IF NOT EXISTS public_token character varying(64);
+
+UPDATE public.contestants
+SET public_token = lower(
+    replace(gen_random_uuid()::text, '-', '') ||
+    replace(gen_random_uuid()::text, '-', '')
+)
+WHERE public_token IS NULL OR public_token = '';
+
+ALTER TABLE public.contestants
+    ALTER COLUMN public_token SET NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS contestants_public_token_uq
+    ON public.contestants(public_token);
 
 DO $$
 BEGIN

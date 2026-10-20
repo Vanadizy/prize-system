@@ -8,6 +8,7 @@ import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 import fs from "fs";
 import path from "path";
+import { randomBytes } from "crypto";
 import { fileURLToPath } from "url";
 
 dotenv.config();
@@ -71,6 +72,7 @@ const schemaReady = (async () => {
   ALTER TABLE public.contestants ADD COLUMN IF NOT EXISTS notes text;
   ALTER TABLE public.contestants ADD COLUMN IF NOT EXISTS qr_path text;
   ALTER TABLE public.contestants ADD COLUMN IF NOT EXISTS qr_url text;
+  ALTER TABLE public.contestants ADD COLUMN IF NOT EXISTS public_token varchar(64);
   ALTER TABLE public.contestants ADD COLUMN IF NOT EXISTS used_at timestamp without time zone;
   ALTER TABLE public.contestants ADD COLUMN IF NOT EXISTS created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP;
   DO $$ BEGIN
@@ -140,16 +142,23 @@ const schemaReady = (async () => {
       ALTER TABLE public.contestants ADD CONSTRAINT contestants_outcome_check CHECK (outcome IN ('winner','not_winner') OR outcome IS NULL);
     END IF;
   END $$;`);
-  const existingCodes = await pool.query("SELECT id, qr_path, qr_url FROM public.contestants ORDER BY id");
-  for (const { id, qr_path: oldQrPath, qr_url: oldQrUrl } of existingCodes.rows) {
+  const existingCodes = await pool.query("SELECT id, qr_path, qr_url, public_token FROM public.contestants ORDER BY id");
+  for (const { id, qr_path: oldQrPath, qr_url: oldQrUrl, public_token: storedPublicToken } of existingCodes.rows) {
+    let publicToken = storedPublicToken;
+    if (!publicToken) {
+      publicToken = createPublicToken();
+      await pool.query("UPDATE public.contestants SET public_token=$1 WHERE id=$2 AND (public_token IS NULL OR public_token='')", [publicToken, id]);
+    }
     const filename = qrFilename(id);
     const absolutePath = path.join(qrDir, filename);
     const qrPath = `/qrcodes/${filename}`;
-    const qrUrl = `${PUBLIC_API_BASE}/api/qr/${ticketSlug(id)}`;
+    const qrUrl = makeQrUrl(publicToken);
     if (!fs.existsSync(absolutePath) || oldQrPath !== qrPath || oldQrUrl !== qrUrl)
       await QRCode.toFile(absolutePath, qrUrl, { width: 500, margin: 3 });
     await pool.query("UPDATE public.contestants SET qr_path=$1, qr_url=$2 WHERE id=$3 AND (qr_path IS DISTINCT FROM $1 OR qr_url IS DISTINCT FROM $2)", [qrPath, qrUrl, id]);
   }
+  await pool.query("ALTER TABLE public.contestants ALTER COLUMN public_token SET NOT NULL");
+  await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS contestants_public_token_uq ON public.contestants(public_token)");
   const adminPasswordHash = await bcrypt.hash(process.env.ADMIN_PASSWORD || "1234", 10);
   await pool.query(
     `INSERT INTO public.users (username, password_hash, role)
@@ -184,8 +193,12 @@ function ticketLabel(value) {
   return `QSN ${String(value).padStart(5, "0")}`;
 }
 
-function ticketSlug(value) {
-  return ticketLabel(value).replace(" ", "-");
+function createPublicToken() {
+  return randomBytes(32).toString("hex");
+}
+
+function makeQrUrl(token) {
+  return `${PUBLIC_API_BASE}/api/qr/${token}`;
 }
 
 function qrFilename(value) {
@@ -232,22 +245,22 @@ function requireAdmin(req, res, next) {
 
 const contestantFields = "id, description, prize, display_label, outcome, notes, qr_path, used_at, created_at";
 
-app.get("/api/qr/:ticketId", asyncRoute(async (req, res) => {
+app.get("/api/qr/:token", asyncRoute(async (req, res) => {
   if (!(await schemaReady)) return res.status(503).send("Ticket service is unavailable.");
-  const id = readContestId(req.params.ticketId);
-  if (!id) return res.status(404).send("Unknown ticket.");
-  const { rowCount } = await pool.query("SELECT 1 FROM public.contestants WHERE id=$1", [id]);
+  const token = String(req.params.token || "");
+  if (!/^[a-f0-9]{64}$/i.test(token)) return res.status(404).send("Unknown ticket.");
+  const { rowCount } = await pool.query("SELECT 1 FROM public.contestants WHERE public_token=$1", [token]);
   if (!rowCount) return res.status(404).send("Unknown ticket.");
-  res.redirect(302, `${PUBLIC_FRONTEND_URL}/ticket/${ticketSlug(id)}`);
+  res.redirect(302, `${PUBLIC_FRONTEND_URL}/ticket/${token}`);
 }));
 
-app.get("/api/public/contestants/:ticketId", asyncRoute(async (req, res) => {
+app.get("/api/public/contestants/:token", asyncRoute(async (req, res) => {
   if (!(await schemaReady)) return res.status(503).json({ message: "Ticket service is unavailable." });
-  const id = readContestId(req.params.ticketId);
-  if (!id) return res.status(404).json({ message: "Unknown ticket." });
+  const token = String(req.params.token || "");
+  if (!/^[a-f0-9]{64}$/i.test(token)) return res.status(404).json({ message: "Unknown ticket." });
   const { rows } = await pool.query(
-    "SELECT id, outcome, prize, display_label, description, used_at FROM public.contestants WHERE id=$1",
-    [id]
+    "SELECT id, outcome, prize, display_label, description, used_at FROM public.contestants WHERE public_token=$1",
+    [token]
   );
   if (!rows.length) return res.status(404).json({ message: "Unknown ticket." });
   const ticket = rows[0];
@@ -329,10 +342,11 @@ app.post("/api/contestants/range", getAuth, requireAdmin, asyncRoute(async (req,
     const skipped = [];
     for (let id = start; id <= end; id += 1) {
       const filename = qrFilename(id);
-      const qrUrl = `${PUBLIC_API_BASE}/api/qr/${ticketSlug(id)}`;
+      const publicToken = createPublicToken();
+      const qrUrl = makeQrUrl(publicToken);
       const insert = await client.query(
-        "INSERT INTO contestants (id, qr_path, qr_url) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING RETURNING id",
-        [id, `/qrcodes/${filename}`, qrUrl]
+        "INSERT INTO contestants (id, qr_path, qr_url, public_token) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING RETURNING id",
+        [id, `/qrcodes/${filename}`, qrUrl, publicToken]
       );
       if (!insert.rowCount) {
         skipped.push(id);
@@ -356,8 +370,10 @@ app.get("/api/contestants/:id/qrcode", getAuth, requireAdmin, asyncRoute(async (
   const id = readContestId(req.params.id);
   if (!id) return res.status(400).json({ message: "Invalid contest ID." });
   const filename = path.join(qrDir, qrFilename(id));
-  const qrUrl = `${PUBLIC_API_BASE}/api/qr/${ticketSlug(id)}`;
-  if (!fs.existsSync(filename)) await QRCode.toFile(filename, qrUrl, { width: 500, margin: 3 });
+  const { rows } = await pool.query("SELECT public_token FROM contestants WHERE id=$1", [id]);
+  if (!rows.length) return res.status(404).json({ message: "Contest ID not found." });
+  const qrUrl = makeQrUrl(rows[0].public_token);
+  await QRCode.toFile(filename, qrUrl, { width: 500, margin: 3 });
   res.download(filename, qrFilename(id));
 }));
 
@@ -367,15 +383,15 @@ app.get("/api/contestants/qrcodes.zip", getAuth, requireAdmin, asyncRoute(async 
   const end = Number(req.query.end);
   if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 1 || end < start || end - start + 1 > QR_SIZE_LIMIT)
     return res.status(400).json({ message: "Enter a valid QSN range from QSN 00001 through QSN 09999." });
-  const rows = await pool.query("SELECT id FROM contestants WHERE id BETWEEN $1 AND $2 ORDER BY id", [start, end]);
+  const rows = await pool.query("SELECT id, public_token FROM contestants WHERE id BETWEEN $1 AND $2 ORDER BY id", [start, end]);
   if (!rows.rowCount) return res.status(404).json({ message: "No QR codes found in that range. Create the range first." });
   res.attachment(`qrcodes_${start}-${end}.zip`);
   const archive = new ZipArchive({ zlib: { level: 6 } });
   archive.on("error", (error) => res.destroy(error));
   archive.pipe(res);
-  for (const { id } of rows.rows) {
+  for (const { id, public_token: publicToken } of rows.rows) {
     const filename = path.join(qrDir, qrFilename(id));
-    if (!fs.existsSync(filename)) await QRCode.toFile(filename, `${PUBLIC_API_BASE}/api/qr/${ticketSlug(id)}`, { width: 500, margin: 3 });
+    await QRCode.toFile(filename, makeQrUrl(publicToken), { width: 500, margin: 3 });
     archive.file(filename, { name: qrFilename(id) });
   }
   await archive.finalize();
@@ -385,15 +401,15 @@ app.post("/api/contestants/qrcodes/selected.zip", getAuth, requireAdmin, asyncRo
   if (!(await schemaReady)) return res.status(503).json({ message: "Database is unavailable. Check backend/.env database settings." });
   const ids = [...new Set((req.body.ids || []).map(readContestId).filter(Boolean))];
   if (!ids.length || ids.length > QR_SIZE_LIMIT) return res.status(400).json({ message: "Select between 1 and 9,999 QR codes." });
-  const { rows } = await pool.query("SELECT id FROM contestants WHERE id = ANY($1::int[]) ORDER BY id", [ids]);
+  const { rows } = await pool.query("SELECT id, public_token FROM contestants WHERE id = ANY($1::int[]) ORDER BY id", [ids]);
   if (!rows.length) return res.status(404).json({ message: "No selected QR codes were found." });
   res.attachment("selected_qrcodes.zip");
   const archive = new ZipArchive({ zlib: { level: 6 } });
   archive.on("error", (error) => res.destroy(error));
   archive.pipe(res);
-  for (const { id } of rows) {
+  for (const { id, public_token: publicToken } of rows) {
     const filename = path.join(qrDir, qrFilename(id));
-    if (!fs.existsSync(filename)) await QRCode.toFile(filename, `${PUBLIC_API_BASE}/api/qr/${ticketSlug(id)}`, { width: 500, margin: 3 });
+    await QRCode.toFile(filename, makeQrUrl(publicToken), { width: 500, margin: 3 });
     archive.file(filename, { name: qrFilename(id) });
   }
   await archive.finalize();
@@ -435,19 +451,24 @@ app.post("/api/contestants/bulk-update", getAuth, requireAdmin, asyncRoute(async
 
 app.post("/api/contestants/scan", asyncRoute(async (req, res) => {
   if (!(await schemaReady)) return res.status(503).json({ message: "Database is unavailable. Check backend/.env database settings." });
-  const contestantId = readContestId(req.body.contestantId);
-  if (!contestantId) return res.status(400).json({ message: "Invalid contest QR ID." });
+  const ticketToken = typeof req.body.ticketToken === "string" && /^[a-f0-9]{64}$/i.test(req.body.ticketToken)
+    ? req.body.ticketToken
+    : null;
+  const contestantId = ticketToken ? null : readContestId(req.body.contestantId);
+  if (!ticketToken && !contestantId) return res.status(400).json({ message: "Enter a valid QSN ID or scan a valid QR code." });
+  const whereClause = ticketToken ? "public_token=$1" : "id=$1";
+  const ticketKey = ticketToken || contestantId;
   const { rows: [window] } = await pool.query("SELECT starts_at, expires_at, CURRENT_TIMESTAMP AS now FROM public.ticket_scan_window WHERE id=1");
   const result = await pool.query(
     `UPDATE contestants SET used_at=CURRENT_TIMESTAMP
-     WHERE id=$1 AND used_at IS NULL AND outcome IN ('winner','not_winner')
+     WHERE ${whereClause} AND used_at IS NULL AND outcome IN ('winner','not_winner')
        AND ($2::timestamptz IS NULL OR CURRENT_TIMESTAMP >= $2)
        AND ($3::timestamptz IS NULL OR CURRENT_TIMESTAMP <= $3)
      RETURNING ${contestantFields}`,
-    [contestantId, window?.starts_at ?? null, window?.expires_at ?? null]
+    [ticketKey, window?.starts_at ?? null, window?.expires_at ?? null]
   );
   if (result.rowCount) return res.json({ success: true, contestant: result.rows[0] });
-  const existing = await pool.query(`SELECT ${contestantFields} FROM contestants WHERE id=$1`, [contestantId]);
+  const existing = await pool.query(`SELECT ${contestantFields} FROM contestants WHERE ${whereClause}`, [ticketKey]);
   if (!existing.rowCount) return res.status(404).json({ message: "Unknown ticket." });
   if (existing.rows[0].used_at) return res.status(409).json({ message: "This ticket is already used. If you have a problem, contact an administrator." });
   if (window?.starts_at && new Date(window.starts_at) > new Date(window.now)) return res.status(410).json({ message: "Ticket scanning has not opened yet." });

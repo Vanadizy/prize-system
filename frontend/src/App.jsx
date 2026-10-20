@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate, us
 import AdminPanel from "./pages/AdminPanel";
 import Login from "./pages/login";
 import ContestantPage from "./pages/Receiption";
+import PublicTicket from "./pages/PublicTicket";
 
 const API_URL = `${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api`;
 
@@ -24,7 +25,7 @@ function AdminRoute() {
 function AppBar() {
   const location = useLocation();
   const navigate = useNavigate();
-  if (location.pathname === "/login") return null;
+  if (location.pathname === "/login" || location.pathname.startsWith("/ticket/")) return null;
   const signedIn = Boolean(localStorage.getItem("token"));
   return <nav className="sticky top-0 z-50 border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur">
     <div className="mx-auto flex h-[72px] max-w-7xl items-center justify-between px-4 sm:px-8">
@@ -40,6 +41,7 @@ export default function App() {
     <Route path="/reception" element={<ContestantPage />} />
     <Route path="/login" element={<Login />} />
     <Route path="/admin" element={<AdminRoute />} />
+    <Route path="/ticket/:ticketId" element={<PublicTicket />} />
     <Route path="*" element={<Navigate to="/" replace />} />
   </Routes></Router>;
 }

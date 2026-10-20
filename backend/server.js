@@ -25,6 +25,10 @@ const qrDir = path.join(__dirname, "qrcodes");
 fs.mkdirSync(qrDir, { recursive: true });
 app.use("/qrcodes", express.static(qrDir));
 const PORT = process.env.PORT || 5000;
+const PUBLIC_API_BASE = (process.env.PUBLIC_API_URL || process.env.API_URL || `http://localhost:${PORT}`)
+  .replace(/\/api\/?$/i, "")
+  .replace(/\/+$/, "");
+const PUBLIC_FRONTEND_URL = (process.env.FRONTEND_URL || "http://localhost:5173").split(",")[0].trim().replace(/\/+$/, "");
 app.get("/api/health", (req, res) => res.json({ ok: true, service: "contest-qr-system" }));
 app.use(express.json({ limit: "2mb" }));
 
@@ -52,19 +56,29 @@ const schemaReady = (async () => {
     id integer PRIMARY KEY,
     description text,
     prize varchar(200),
+    display_label varchar(100),
     outcome varchar(20),
     notes text,
     qr_path text,
+    qr_url text,
     used_at timestamp without time zone,
     created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
   );
   ALTER TABLE public.contestants ADD COLUMN IF NOT EXISTS description text;
   ALTER TABLE public.contestants ADD COLUMN IF NOT EXISTS prize varchar(200);
+  ALTER TABLE public.contestants ADD COLUMN IF NOT EXISTS display_label varchar(100);
   ALTER TABLE public.contestants ADD COLUMN IF NOT EXISTS outcome varchar(20);
   ALTER TABLE public.contestants ADD COLUMN IF NOT EXISTS notes text;
   ALTER TABLE public.contestants ADD COLUMN IF NOT EXISTS qr_path text;
+  ALTER TABLE public.contestants ADD COLUMN IF NOT EXISTS qr_url text;
   ALTER TABLE public.contestants ADD COLUMN IF NOT EXISTS used_at timestamp without time zone;
   ALTER TABLE public.contestants ADD COLUMN IF NOT EXISTS created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP;
+  DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='contestants_qsn_id_range_check' AND conrelid='public.contestants'::regclass)
+       AND NOT EXISTS (SELECT 1 FROM public.contestants WHERE id NOT BETWEEN 1 AND 9999) THEN
+      ALTER TABLE public.contestants ADD CONSTRAINT contestants_qsn_id_range_check CHECK (id BETWEEN 1 AND 9999);
+    END IF;
+  END $$;
   DO $$ BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='contestants' AND column_name='fullname') THEN
       ALTER TABLE public.contestants DROP COLUMN fullname CASCADE;
@@ -113,19 +127,28 @@ const schemaReady = (async () => {
     updated_at timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CHECK (starts_at IS NULL OR expires_at IS NULL OR starts_at < expires_at)
   );
+  CREATE TABLE IF NOT EXISTS public.branding_settings (
+    id smallint PRIMARY KEY CHECK (id = 1),
+    logo_data_url text,
+    updated_at timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
   `);
   await pool.query("INSERT INTO public.ticket_scan_window (id) VALUES (1) ON CONFLICT (id) DO NOTHING");
+  await pool.query("INSERT INTO public.branding_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING");
   await pool.query(`DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='contestants_outcome_check' AND conrelid='public.contestants'::regclass) THEN
       ALTER TABLE public.contestants ADD CONSTRAINT contestants_outcome_check CHECK (outcome IN ('winner','not_winner') OR outcome IS NULL);
     END IF;
   END $$;`);
-  const existingCodes = await pool.query("SELECT id FROM public.contestants ORDER BY id");
-  for (const { id } of existingCodes.rows) {
-    const filename = `qrcode_${id}.png`;
+  const existingCodes = await pool.query("SELECT id, qr_path, qr_url FROM public.contestants ORDER BY id");
+  for (const { id, qr_path: oldQrPath, qr_url: oldQrUrl } of existingCodes.rows) {
+    const filename = qrFilename(id);
     const absolutePath = path.join(qrDir, filename);
-    if (!fs.existsSync(absolutePath)) await QRCode.toFile(absolutePath, String(id), { width: 500, margin: 3 });
-    await pool.query("UPDATE public.contestants SET qr_path=$1 WHERE id=$2 AND qr_path IS DISTINCT FROM $1", [`/qrcodes/${filename}`, id]);
+    const qrPath = `/qrcodes/${filename}`;
+    const qrUrl = `${PUBLIC_API_BASE}/api/qr/${ticketSlug(id)}`;
+    if (!fs.existsSync(absolutePath) || oldQrPath !== qrPath || oldQrUrl !== qrUrl)
+      await QRCode.toFile(absolutePath, qrUrl, { width: 500, margin: 3 });
+    await pool.query("UPDATE public.contestants SET qr_path=$1, qr_url=$2 WHERE id=$3 AND (qr_path IS DISTINCT FROM $1 OR qr_url IS DISTINCT FROM $2)", [qrPath, qrUrl, id]);
   }
   const adminPasswordHash = await bcrypt.hash(process.env.ADMIN_PASSWORD || "1234", 10);
   await pool.query(
@@ -142,7 +165,7 @@ const schemaReady = (async () => {
   return false;
 });
 const JWT_SECRET = process.env.JWT_SECRET || "vanadizy_secret_key";
-const QR_SIZE_LIMIT = 5000;
+const QR_SIZE_LIMIT = 9999;
 
 const asyncRoute = (handler) => (req, res, next) =>
   Promise.resolve(handler(req, res, next)).catch(next);
@@ -157,18 +180,33 @@ app.get("/api/db-health", asyncRoute(async (req, res) => {
   }
 }));
 
-function parseContestId(value) {
-  if (value === undefined || value === null) return null;
-  const match = String(value).trim().match(/(?:^|\D)(\d+)(?:\D|$)/);
-  if (!match) return null;
-  const id = Number(match[1]);
-  return Number.isSafeInteger(id) && id > 0 ? id : null;
+function ticketLabel(value) {
+  return `QSN ${String(value).padStart(5, "0")}`;
+}
+
+function ticketSlug(value) {
+  return ticketLabel(value).replace(" ", "-");
+}
+
+function qrFilename(value) {
+  return `qrcode_${ticketLabel(value).replace(" ", "_")}.png`;
 }
 
 function readContestId(value) {
-  if (value === undefined || value === null || !/^\d+$/.test(String(value))) return null;
-  const id = Number(value);
-  return Number.isSafeInteger(id) && id > 0 ? id : null;
+  if (value === undefined || value === null) return null;
+  let raw = String(value).trim();
+  if (/^https?:\/\//i.test(raw)) {
+    try { raw = new URL(raw).pathname.split("/").filter(Boolean).at(-1) || ""; }
+    catch { return null; }
+  }
+  const match = raw.match(/^(?:QSN[\s_-]*)?(\d{1,5})$/i);
+  if (!match) return null;
+  const id = Number(match[1]);
+  return Number.isSafeInteger(id) && id >= 1 && id <= 9999 ? id : null;
+}
+
+function parseContestId(value) {
+  return readContestId(value);
 }
 
 async function getAuth(req, res, next) {
@@ -192,7 +230,54 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-const contestantFields = "id, description, prize, outcome, notes, qr_path, used_at, created_at";
+const contestantFields = "id, description, prize, display_label, outcome, notes, qr_path, used_at, created_at";
+
+app.get("/api/qr/:ticketId", asyncRoute(async (req, res) => {
+  if (!(await schemaReady)) return res.status(503).send("Ticket service is unavailable.");
+  const id = readContestId(req.params.ticketId);
+  if (!id) return res.status(404).send("Unknown ticket.");
+  const { rowCount } = await pool.query("SELECT 1 FROM public.contestants WHERE id=$1", [id]);
+  if (!rowCount) return res.status(404).send("Unknown ticket.");
+  res.redirect(302, `${PUBLIC_FRONTEND_URL}/ticket/${ticketSlug(id)}`);
+}));
+
+app.get("/api/public/contestants/:ticketId", asyncRoute(async (req, res) => {
+  if (!(await schemaReady)) return res.status(503).json({ message: "Ticket service is unavailable." });
+  const id = readContestId(req.params.ticketId);
+  if (!id) return res.status(404).json({ message: "Unknown ticket." });
+  const { rows } = await pool.query(
+    "SELECT id, outcome, prize, display_label, description, used_at FROM public.contestants WHERE id=$1",
+    [id]
+  );
+  if (!rows.length) return res.status(404).json({ message: "Unknown ticket." });
+  const ticket = rows[0];
+  if (ticket.used_at) return res.json({ used: true, ticket: { id: ticket.id, used_at: ticket.used_at } });
+  res.json({ used: false, ticket });
+}));
+
+app.get("/api/public/branding", asyncRoute(async (req, res) => {
+  if (!(await schemaReady)) return res.status(503).json({ message: "Ticket service is unavailable." });
+  const { rows } = await pool.query("SELECT logo_data_url FROM public.branding_settings WHERE id=1");
+  res.json({ logoDataUrl: rows[0]?.logo_data_url || null });
+}));
+
+app.get("/api/settings/branding", getAuth, requireAdmin, asyncRoute(async (req, res) => {
+  const { rows } = await pool.query("SELECT logo_data_url FROM public.branding_settings WHERE id=1");
+  res.json({ logoDataUrl: rows[0]?.logo_data_url || null });
+}));
+
+app.put("/api/settings/branding", getAuth, requireAdmin, asyncRoute(async (req, res) => {
+  const { logoDataUrl } = req.body;
+  if (logoDataUrl !== null && (typeof logoDataUrl !== "string" || !/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(logoDataUrl)))
+    return res.status(400).json({ message: "Upload a PNG, JPG, or WebP logo." });
+  if (logoDataUrl && logoDataUrl.length > 1400000)
+    return res.status(400).json({ message: "Logo must be 1 MB or smaller." });
+  const { rows } = await pool.query(
+    "UPDATE public.branding_settings SET logo_data_url=$1, updated_at=CURRENT_TIMESTAMP WHERE id=1 RETURNING logo_data_url",
+    [logoDataUrl]
+  );
+  res.json({ logoDataUrl: rows[0]?.logo_data_url || null, message: logoDataUrl ? "Logo saved." : "Logo removed." });
+}));
 
 app.get("/api/contestants", asyncRoute(async (req, res) => {
   if (!(await schemaReady)) return res.status(503).json({ message: "Database is unavailable. Check backend/.env database settings." });
@@ -230,10 +315,10 @@ app.put("/api/settings/ticket-window", getAuth, requireAdmin, asyncRoute(async (
 
 app.post("/api/contestants/range", getAuth, requireAdmin, asyncRoute(async (req, res) => {
   if (!(await schemaReady)) return res.status(503).json({ message: "Database is unavailable. Check backend/.env database settings." });
-  const start = Number(req.body.start);
-  const end = Number(req.body.end);
-  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 1 || end < start)
-    return res.status(400).json({ message: "Enter a valid positive ID range." });
+  const start = readContestId(req.body.start);
+  const end = readContestId(req.body.end);
+  if (!start || !end || end < start)
+    return res.status(400).json({ message: "Enter a valid QSN range from QSN 00001 through QSN 09999." });
   if (end - start + 1 > QR_SIZE_LIMIT)
     return res.status(400).json({ message: `Generate up to ${QR_SIZE_LIMIT.toLocaleString()} IDs at a time.` });
 
@@ -243,16 +328,17 @@ app.post("/api/contestants/range", getAuth, requireAdmin, asyncRoute(async (req,
     const created = [];
     const skipped = [];
     for (let id = start; id <= end; id += 1) {
-      const filename = `qrcode_${id}.png`;
+      const filename = qrFilename(id);
+      const qrUrl = `${PUBLIC_API_BASE}/api/qr/${ticketSlug(id)}`;
       const insert = await client.query(
-        "INSERT INTO contestants (id, qr_path) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING RETURNING id",
-        [id, `/qrcodes/${filename}`]
+        "INSERT INTO contestants (id, qr_path, qr_url) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING RETURNING id",
+        [id, `/qrcodes/${filename}`, qrUrl]
       );
       if (!insert.rowCount) {
         skipped.push(id);
         continue;
       }
-      await QRCode.toFile(path.join(qrDir, filename), String(id), { width: 500, margin: 3 });
+      await QRCode.toFile(path.join(qrDir, filename), qrUrl, { width: 500, margin: 3 });
       created.push(id);
     }
     await client.query("COMMIT");
@@ -269,9 +355,10 @@ app.get("/api/contestants/:id/qrcode", getAuth, requireAdmin, asyncRoute(async (
   if (!(await schemaReady)) return res.status(503).json({ message: "Database is unavailable. Check backend/.env database settings." });
   const id = readContestId(req.params.id);
   if (!id) return res.status(400).json({ message: "Invalid contest ID." });
-  const filename = path.join(qrDir, `qrcode_${id}.png`);
-  if (!fs.existsSync(filename)) await QRCode.toFile(filename, String(id), { width: 500, margin: 3 });
-  res.download(filename, `qrcode_${id}.png`);
+  const filename = path.join(qrDir, qrFilename(id));
+  const qrUrl = `${PUBLIC_API_BASE}/api/qr/${ticketSlug(id)}`;
+  if (!fs.existsSync(filename)) await QRCode.toFile(filename, qrUrl, { width: 500, margin: 3 });
+  res.download(filename, qrFilename(id));
 }));
 
 app.get("/api/contestants/qrcodes.zip", getAuth, requireAdmin, asyncRoute(async (req, res) => {
@@ -279,7 +366,7 @@ app.get("/api/contestants/qrcodes.zip", getAuth, requireAdmin, asyncRoute(async 
   const start = Number(req.query.start);
   const end = Number(req.query.end);
   if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 1 || end < start || end - start + 1 > QR_SIZE_LIMIT)
-    return res.status(400).json({ message: "Enter a valid ID range of up to 5,000 codes." });
+    return res.status(400).json({ message: "Enter a valid QSN range from QSN 00001 through QSN 09999." });
   const rows = await pool.query("SELECT id FROM contestants WHERE id BETWEEN $1 AND $2 ORDER BY id", [start, end]);
   if (!rows.rowCount) return res.status(404).json({ message: "No QR codes found in that range. Create the range first." });
   res.attachment(`qrcodes_${start}-${end}.zip`);
@@ -287,9 +374,9 @@ app.get("/api/contestants/qrcodes.zip", getAuth, requireAdmin, asyncRoute(async 
   archive.on("error", (error) => res.destroy(error));
   archive.pipe(res);
   for (const { id } of rows.rows) {
-    const filename = path.join(qrDir, `qrcode_${id}.png`);
-    if (!fs.existsSync(filename)) await QRCode.toFile(filename, String(id), { width: 500, margin: 3 });
-    archive.file(filename, { name: `qrcode_${id}.png` });
+    const filename = path.join(qrDir, qrFilename(id));
+    if (!fs.existsSync(filename)) await QRCode.toFile(filename, `${PUBLIC_API_BASE}/api/qr/${ticketSlug(id)}`, { width: 500, margin: 3 });
+    archive.file(filename, { name: qrFilename(id) });
   }
   await archive.finalize();
 }));
@@ -297,7 +384,7 @@ app.get("/api/contestants/qrcodes.zip", getAuth, requireAdmin, asyncRoute(async 
 app.post("/api/contestants/qrcodes/selected.zip", getAuth, requireAdmin, asyncRoute(async (req, res) => {
   if (!(await schemaReady)) return res.status(503).json({ message: "Database is unavailable. Check backend/.env database settings." });
   const ids = [...new Set((req.body.ids || []).map(readContestId).filter(Boolean))];
-  if (!ids.length || ids.length > QR_SIZE_LIMIT) return res.status(400).json({ message: "Select between 1 and 5,000 QR codes." });
+  if (!ids.length || ids.length > QR_SIZE_LIMIT) return res.status(400).json({ message: "Select between 1 and 9,999 QR codes." });
   const { rows } = await pool.query("SELECT id FROM contestants WHERE id = ANY($1::int[]) ORDER BY id", [ids]);
   if (!rows.length) return res.status(404).json({ message: "No selected QR codes were found." });
   res.attachment("selected_qrcodes.zip");
@@ -305,9 +392,9 @@ app.post("/api/contestants/qrcodes/selected.zip", getAuth, requireAdmin, asyncRo
   archive.on("error", (error) => res.destroy(error));
   archive.pipe(res);
   for (const { id } of rows) {
-    const filename = path.join(qrDir, `qrcode_${id}.png`);
-    if (!fs.existsSync(filename)) await QRCode.toFile(filename, String(id), { width: 500, margin: 3 });
-    archive.file(filename, { name: `qrcode_${id}.png` });
+    const filename = path.join(qrDir, qrFilename(id));
+    if (!fs.existsSync(filename)) await QRCode.toFile(filename, `${PUBLIC_API_BASE}/api/qr/${ticketSlug(id)}`, { width: 500, margin: 3 });
+    archive.file(filename, { name: qrFilename(id) });
   }
   await archive.finalize();
 }));
@@ -315,14 +402,15 @@ app.post("/api/contestants/qrcodes/selected.zip", getAuth, requireAdmin, asyncRo
 app.put("/api/contestants/:id", getAuth, requireAdmin, asyncRoute(async (req, res) => {
   if (!(await schemaReady)) return res.status(503).json({ message: "Database is unavailable. Check backend/.env database settings." });
   const id = readContestId(req.params.id);
-  const { description, prize, outcome } = req.body;
+  const { description, prize, outcome, displayLabel } = req.body;
   if (!id) return res.status(400).json({ message: "Invalid ID." });
   if (!["winner", "not_winner"].includes(outcome)) return res.status(400).json({ message: "Choose Winner or Not a winner." });
+  if (displayLabel !== undefined && displayLabel !== null && (typeof displayLabel !== "string" || displayLabel.trim().length > 100)) return res.status(400).json({ message: "Ticket label must be 100 characters or fewer." });
   if (typeof description !== "string" || !description.trim()) return res.status(400).json({ message: outcome === "winner" ? "Enter a prize message." : "Enter a try again message." });
   if (outcome === "winner" && (typeof prize !== "string" || !prize.trim())) return res.status(400).json({ message: "Enter a prize title." });
   const result = await pool.query(
-    `UPDATE contestants SET description=$1, prize=$2, outcome=$3, notes=NULL WHERE id=$4 RETURNING ${contestantFields}`,
-    [description.trim(), outcome === "winner" ? prize.trim() : null, outcome, id]
+    `UPDATE contestants SET description=$1, prize=$2, display_label=$3, outcome=$4, notes=NULL WHERE id=$5 RETURNING ${contestantFields}`,
+    [description.trim(), outcome === "winner" ? prize.trim() : null, typeof displayLabel === "string" && displayLabel.trim() ? displayLabel.trim() : null, outcome, id]
   );
   if (!result.rowCount) return res.status(404).json({ message: "Contest ID not found." });
   res.json({ contestant: result.rows[0], message: "Contestant and prize information saved." });
@@ -331,15 +419,16 @@ app.put("/api/contestants/:id", getAuth, requireAdmin, asyncRoute(async (req, re
 app.post("/api/contestants/bulk-update", getAuth, requireAdmin, asyncRoute(async (req, res) => {
   if (!(await schemaReady)) return res.status(503).json({ message: "Database is unavailable. Check backend/.env database settings." });
   const ids = [...new Set((req.body.ids || []).map(parseContestId).filter(Boolean))];
-  const { description, prize, outcome } = req.body;
+  const { description, prize, outcome, displayLabel } = req.body;
   if (!ids.length) return res.status(400).json({ message: "Select at least one contest ID." });
   if (!["winner", "not_winner"].includes(outcome)) return res.status(400).json({ message: "Choose Winner or Not a winner." });
+  if (displayLabel !== undefined && displayLabel !== null && (typeof displayLabel !== "string" || displayLabel.trim().length > 100)) return res.status(400).json({ message: "Ticket label must be 100 characters or fewer." });
   if (typeof description !== "string" || !description.trim()) return res.status(400).json({ message: outcome === "winner" ? "Enter a prize message." : "Enter a try again message." });
   if (outcome === "winner" && (typeof prize !== "string" || !prize.trim())) return res.status(400).json({ message: "Enter a prize title." });
   const prizeValue = outcome === "winner" ? prize.trim() : null;
   const result = await pool.query(
-    `UPDATE contestants SET description=$1, prize=$2, outcome=$3, notes=NULL WHERE id = ANY($4::int[])`,
-    [description.trim(), prizeValue, outcome, ids]
+    `UPDATE contestants SET description=$1, prize=$2, display_label=$3, outcome=$4, notes=NULL WHERE id = ANY($5::int[])`,
+    [description.trim(), prizeValue, typeof displayLabel === "string" && displayLabel.trim() ? displayLabel.trim() : null, outcome, ids]
   );
   res.json({ message: `Updated ${result.rowCount} contest ID${result.rowCount === 1 ? "" : "s"}.`, updated: result.rowCount });
 }));

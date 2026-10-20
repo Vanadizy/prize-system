@@ -118,7 +118,7 @@ Render's [Express deployment guide](https://render.com/docs/deploy-node-express-
 
 ## 5. Deploy on Rodline Node app hosting
 
-Create two Node applications from the same GitHub repository: one for the API and one for the React frontend. In CloudLinux Node.js Selector, configure each app with its own application root and virtual environment, then use the Selector's **Run NPM Install** action after uploading `package.json` and `package-lock.json`. Do not upload a `node_modules` directory. The API application's root is `backend`; its startup file is `server.js` (or use `npm start`). Configure `DATABASE_URL`, `DB_SSL`, `JWT_SECRET`, `FRONTEND_URL`, and the other backend variables in its app settings.
+Create two Node applications from the same GitHub repository: one for the API and one for the React frontend. In CloudLinux Node.js Selector, configure each app with its own application root and virtual environment, then use the Selector's **Run NPM Install** action after uploading `package.json` and `package-lock.json`. Do not upload a `node_modules` directory. The API application's root is `backend`; its startup file is `server.js` (or use `npm start`). Configure `DATABASE_URL`, `DB_SSL`, `JWT_SECRET`, `FRONTEND_URL`, `PUBLIC_API_URL`, and the other backend variables in its app settings. Set `PUBLIC_API_URL` to `https://api.malenyapharmacy.com` (the public API origin) and `FRONTEND_URL` to the public frontend origin, for example `https://check.malenyapharmacy.com`.
 
 Configure the frontend Node application as follows:
 
@@ -132,11 +132,15 @@ If Rodline provides a combined build command, activate the frontend app's Select
 
 ### Populate the hosted database
 
-The backend creates the required tables and the initial `admin` account when it starts against an empty PostgreSQL database. Set the live database connection in the backend app's environment settings, restart the backend, then sign in to the admin page and create ticket IDs with the range tool and assign each ticket's result/prize details. The contestant scanner then reads those rows. No contestant login is needed.
+The backend creates the required tables and the initial `admin` account when it starts against an empty PostgreSQL database. It also applies the QSN/branding schema migration on startup. Set the live database connection in the backend app's environment settings, restart the backend, then sign in to the admin page, upload the campaign logo, create QSN ticket IDs, and assign result details to selected tickets. No contestant login is needed.
+
+For a manual PostgreSQL upgrade, run [`backend/migrations/qr_ticket_format.sql`](backend/migrations/qr_ticket_format.sql) in pgAdmin's Query Tool while connected to the existing database. It adds the per-ticket display label and QR URL fields, a branding settings table, and the 1–9999 ID check. The backend runs these schema changes automatically at startup as well.
+
+QR images contain an HTTPS link on `PUBLIC_API_URL`. A phone's built-in camera opens that API link, which redirects to the branded public ticket page on `FRONTEND_URL` without using the ticket. Scanning inside the site's scanner calls the separate atomic redemption endpoint and marks the ticket used. Recreate or download the QR images after deployment; the backend refreshes existing image files on startup when their stored QR URL differs.
 
 To copy the existing local records instead, connect to the Rodline PostgreSQL database in pgAdmin (using Rodline's connection details and SSL requirement), select that database, open **Tools → Query Tool**, open `database-backup/contest_system_export.sql`, and execute it only on an empty database. This export includes 20 existing tickets, an administrator row, and scan-window dates that expired on 2026-10-18; review or change the scan window in the admin interface after importing. Do not execute it on a database that already has tables or live records. Verify the import with `SELECT COUNT(*) FROM public.contestants;`.
 
-The backend regenerates missing QR PNG files from ticket IDs at startup. The database is the durable source of ticket data; do not rely on the web service's local QR image folder as persistent storage.
+The backend regenerates missing or outdated QR PNGs from the database at startup. The database is the durable source of ticket data; do not rely on the hosted app's local QR image folder as persistent storage.
 
 ## 6. Change the live administrator login
 
